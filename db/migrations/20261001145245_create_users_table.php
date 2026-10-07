@@ -11,8 +11,6 @@ final class CreateUsersTable extends AbstractMigration
          $this->table('usuarios')
             ->addColumn('email', 'string', ['limit' => 150, 'null' => true])
             ->addColumn('telefone', 'string', ['limit' => 20, 'null' => true]) 
-            ->addColumn('email_verificado', 'boolean', ['default' => false])
-            ->addColumn('telefone_verificado', 'boolean', ['default' => false])
             ->addColumn('senha_hash', 'string', ['limit' => 255, 'null' => true]) 
             ->addColumn('google_id', 'string', ['limit' => 100, 'null' => true])
             ->addColumn('papel', 'enum', [
