@@ -44,11 +44,11 @@ Backend em PHP, rodando em containers Docker (Nginx + PHP-FPM) com banco de dado
    APP_ENV=local
    APP_PORT=8080
 
-   DB_HOST=postgres
-   DB_PORT=5432
-   DB_DATABASE=agendamentos
-   DB_USERNAME=agendamentos_user
-   DB_PASSWORD=troque_esta_senha
+   DB_HOST=
+   DB_PORT=
+   DB_DATABASE=
+   DB_USERNAME=
+   DB_PASSWORD=
    ```
 
    > **Importante:** `DB_HOST` deve continuar como `postgres` (o nome do serviço no `docker-compose.yml`). É assim que o container do PHP encontra o do banco pela rede interna do Docker. Não troque para `localhost` aqui.
