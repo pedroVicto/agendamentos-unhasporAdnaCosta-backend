@@ -19,13 +19,20 @@ Backend em PHP, rodando em containers Docker (Nginx + PHP-FPM) com banco de dado
 │   │   └── Dockerfile          # Imagem do PHP-FPM com extensões do Postgres
 │   └── nginx/
 │       └── default.conf        # Configuração do servidor web
+├── public/
+│   └── index.php               # Ponto de entrada (única pasta servida pelo Nginx)
+├── routes/                     # Um arquivo por área: publico, autenticado, cliente, supervisor, admin
 ├── src/
-│   ├── controllers/
-│   └── core/
-├── docker-compose.yml          # Orquestra os serviços (php, nginx, postgres)
+│   ├── Core/                   # Env, Database, Request, Response, Router
+│   ├── Middleware/             # Auth (sessão), Papel (cliente/supervisor/admin), Cors
+│   ├── Services/               # OtpService, SessionService, AuthService, Notificacao/
+│   └── Controllers/
+├── db/
+│   ├── migrations/
+│   └── seeds/                  # AdminSeeder: cria o primeiro admin
+├── docker-compose.yml          # Orquestra os serviços (php, nginx, postgres, mailpit)
 ├── .env                        # Variáveis de ambiente (NÃO versionado)
-├── .env.example                # Modelo das variáveis de ambiente
-└── index.php                   # Ponto de entrada da aplicação
+└── .env.example                # Modelo das variáveis de ambiente
 ```
 
 ## Configuração inicial
@@ -38,20 +45,11 @@ Backend em PHP, rodando em containers Docker (Nginx + PHP-FPM) com banco de dado
    cp .env.example .env
    ```
 
-3. Abra o `.env` e ajuste os valores, se quiser (usuário, senha e nome do banco):
-
-   ```env
-   APP_ENV=local
-   APP_PORT=8080
-
-   DB_HOST=
-   DB_PORT=
-   DB_DATABASE=
-   DB_USERNAME=
-   DB_PASSWORD=
-   ```
+3. Abra o `.env` e preencha os valores. Cada variável está comentada no `.env.example`; as que não podem ficar vazias são as do banco (`DB_*`), `APP_KEY`, `ADMIN_EMAIL` e `ADMIN_SENHA`.
 
    > **Importante:** `DB_HOST` deve continuar como `postgres` (o nome do serviço no `docker-compose.yml`). É assim que o container do PHP encontra o do banco pela rede interna do Docker. Não troque para `localhost` aqui.
+
+   > `APP_KEY` protege os códigos de verificação. Gere uma depois de subir os containers com `docker compose exec php php -r "echo bin2hex(random_bytes(32));"` e nunca a versione.
 
 ## Subindo a aplicação
 
@@ -63,8 +61,8 @@ docker compose up -d --build
 
 Isso vai:
 - Construir a imagem do PHP (com as extensões do Postgres já instaladas)
-- Baixar as imagens do Nginx e do Postgres
-- Subir os três containers em segundo plano
+- Baixar as imagens do Nginx, do Postgres e do Mailpit
+- Subir os quatro containers em segundo plano
 
 Para conferir se está tudo de pé:
 
@@ -72,17 +70,57 @@ Para conferir se está tudo de pé:
 docker compose ps
 ```
 
-Você deve ver os três serviços (`php`, `nginx`, `postgres`) com status `Up`, e o `postgres` como `(healthy)`.
+Você deve ver os serviços `php`, `nginx`, `postgres` e `mailpit` com status `Up`, e o `postgres` como `(healthy)`.
+
+Depois, instale as dependências, crie as tabelas e o primeiro admin:
+
+```bash
+docker compose exec php composer install
+docker compose exec php vendor/bin/phinx migrate
+docker compose exec php vendor/bin/phinx seed:run -s AdminSeeder
+```
 
 ## Acessando a aplicação
 
-Abra no navegador:
+A API responde em `http://localhost:8080`. Para um teste rápido, abra `http://localhost:8080/api/servicos`: deve vir um JSON com a lista de serviços.
 
-```
-http://localhost:8080
-```
+Os e-mails enviados em desenvolvimento (incluindo os códigos de acesso) aparecem em `http://localhost:8025` (Mailpit).
 
-Se tudo estiver certo, a página vai confirmar que o PHP está rodando, que a extensão `pdo_pgsql` foi carregada e que a conexão com o banco funcionou.
+## Autenticação e áreas
+
+Há três papéis: `cliente`, `supervisor` e `admin`. Todos terminam com uma sessão guardada em cookie `HttpOnly`; o que muda é como cada um entra.
+
+| Quem | Como entra |
+|---|---|
+| Cliente | Sem senha. Informa nome + e-mail ou telefone, recebe um código de 6 dígitos (vale 10 minutos, 5 tentativas) e o digita. A conta é criada no primeiro pedido de código. |
+| Supervisor | E-mail + senha. É criado por um admin. |
+| Admin | E-mail + senha. O primeiro é criado pelo `AdminSeeder`. |
+
+Cada área é um arquivo em `routes/`, com a proteção aplicada ao grupo inteiro:
+
+| Arquivo | Prefixo | Quem acessa |
+|---|---|---|
+| `publico.php` | `/api/servicos`, `/api/auth/...` | Qualquer visitante, sem login |
+| `autenticado.php` | `/api/auth/me`, `/api/auth/logout` | Qualquer usuário logado |
+| `cliente.php` | `/api/cliente/...` | Só `cliente` |
+| `supervisor.php` | `/api/supervisor/...` | `supervisor` e `admin` |
+| `admin.php` | `/api/admin/...` | Só `admin` |
+
+Sem sessão válida a resposta é `401`; com sessão mas papel errado, `403`.
+
+Rotas de autenticação (corpo sempre em JSON):
+
+| Rota | Corpo |
+|---|---|
+| `POST /api/auth/cliente/codigo` | `{"nome", "email" ou "telefone", "canal"}` — `canal` é `email`, `sms` ou `whatsapp` (opcional) |
+| `POST /api/auth/cliente/verificar` | `{"email" ou "telefone", "codigo"}` |
+| `POST /api/auth/staff/login` | `{"email", "senha"}` |
+| `GET /api/auth/me` | — |
+| `POST /api/auth/logout` | — |
+
+O front-end precisa enviar as requisições com `credentials: 'include'` para o cookie ir junto, e o endereço dele tem que estar em `FRONTEND_URL`.
+
+SMS e WhatsApp usam a Twilio (`TWILIO_*` no `.env`). Sem essas credenciais, com `APP_ENV=local`, o código é só gravado no log: `docker compose logs -f php`.
 
 ## Conectando ao banco por um cliente externo (Beekeeper, DBeaver, etc.)
 

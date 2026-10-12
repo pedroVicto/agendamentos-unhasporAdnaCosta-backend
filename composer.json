@@ -1,5 +1,13 @@
 {
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
     "require-dev": {
         "robmorgan/phinx": "^0.16.12"
+    },
+    "require": {
+        "phpmailer/phpmailer": "^7.1"
     }
 }

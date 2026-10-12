@@ -1,17 +1,8 @@
 <?php
 
-// Carrega as variáveis do .env manualmente (sem depender de framework).
-// Se você instalar vlucas/phpdotenv depois, pode trocar por ele.
-$envPath = __DIR__ . '/.env';
-if (file_exists($envPath)) {
-    foreach (file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        if (str_starts_with(trim($line), '#') || !str_contains($line, '=')) {
-            continue;
-        }
-        [$key, $value] = explode('=', $line, 2);
-        putenv(trim($key) . '=' . trim($value));
-    }
-}
+// Mesmo carregador de .env usado pela aplicação (public/index.php).
+require_once __DIR__ . '/src/Core/Env.php';
+App\Core\Env::carregar(__DIR__ . '/.env');
 
 return [
     'paths' => [

@@ -42,7 +42,7 @@ final class CreateAgendamentosTable extends AbstractMigration
             ->addColumn('observacoes', 'text', ['null' => true])
 
             ->addColumn('created_at', 'timestamp', ['default' => 'CURRENT_TIMESTAMP'])
-            ->addColumn('updated_at', 'timestamp', ['null' => true, 'update' => 'CURRENT_TIMESTAMP'])
+            ->addColumn('updated_at', 'timestamp', ['null' => true])
 
             // Índice para consultas por data (agenda do dia, etc.)
             ->addIndex(['data_hora'])

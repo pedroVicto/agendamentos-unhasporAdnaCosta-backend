@@ -1,0 +1,550 @@
+openapi: 3.0.3
+info:
+  title: Agendamentos - Unhas por Adna Costa
+  version: 1.0.0
+  description: |
+    API de agendamentos. A autenticação é por sessão guardada no cookie
+    HttpOnly `sessao`, criado no login (staff) ou na verificação do código
+    (cliente). Sem sessão válida a resposta é 401; com sessão mas papel
+    errado, 403.
+
+servers:
+  - url: http://localhost:8080
+    description: Local (Docker)
+
+tags:
+  - name: Público
+    description: Sem login
+  - name: Autenticação
+    description: Entrada de cliente e staff, sessão atual e logout
+  - name: Cliente
+    description: Só o papel `cliente`
+  - name: Supervisor
+    description: Papéis `supervisor` e `admin`
+  - name: Admin
+    description: Só o papel `admin`
+
+paths:
+  /api/servicos:
+    get:
+      tags: [Público]
+      summary: Lista os serviços
+      operationId: listarServicos
+      security: []
+      responses:
+        '200':
+          description: Lista de serviços, ordenada por nome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  servicos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Servico'
+
+  /api/auth/cliente/codigo:
+    post:
+      tags: [Autenticação]
+      summary: Cliente pede o código de 6 dígitos
+      description: |
+        Informe `email` ou `telefone`. Sem `canal`, o código vai por e-mail
+        se veio e-mail, senão por WhatsApp. A conta é criada no primeiro
+        pedido. O código vale 10 minutos e aceita 5 tentativas.
+
+        Em desenvolvimento, o e-mail aparece no Mailpit
+        (http://localhost:8025); SMS/WhatsApp sem Twilio vão para o log
+        (`docker compose logs -f php`).
+      operationId: solicitarCodigoCliente
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome]
+              properties:
+                nome:
+                  type: string
+                  minLength: 2
+                  maxLength: 150
+                email:
+                  type: string
+                  format: email
+                  maxLength: 150
+                telefone:
+                  type: string
+                  description: Com DDD. Sem código de país é tratado como brasileiro.
+                canal:
+                  type: string
+                  enum: [email, sms, whatsapp]
+            examples:
+              email:
+                summary: Por e-mail
+                value:
+                  nome: Maria Silva
+                  email: maria@teste.com
+              whatsapp:
+                summary: Por WhatsApp
+                value:
+                  nome: Maria Silva
+                  telefone: '11999998888'
+                  canal: whatsapp
+              sms:
+                summary: Por SMS
+                value:
+                  nome: Maria Silva
+                  telefone: '11999998888'
+                  canal: sms
+      responses:
+        '200':
+          description: Mesma resposta tenha o código saído ou não
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensagem:
+                    type: string
+                    example: Se os dados estiverem corretos, o código foi enviado.
+        '422':
+          description: Nome, e-mail ou telefone inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '502':
+          description: Falha ao enviar o código
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/auth/cliente/verificar:
+    post:
+      tags: [Autenticação]
+      summary: Cliente confirma o código e inicia a sessão
+      description: Use o mesmo `email` ou `telefone` (e `canal`) do pedido do código.
+      operationId: verificarCodigoCliente
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [codigo]
+              properties:
+                email:
+                  type: string
+                  format: email
+                telefone:
+                  type: string
+                canal:
+                  type: string
+                  enum: [email, sms, whatsapp]
+                codigo:
+                  type: string
+                  pattern: '^\d{6}$'
+            examples:
+              email:
+                summary: Por e-mail
+                value:
+                  email: maria@teste.com
+                  codigo: '123456'
+              telefone:
+                summary: Por telefone
+                value:
+                  telefone: '11999998888'
+                  codigo: '123456'
+      responses:
+        '200':
+          $ref: '#/components/responses/SessaoIniciada'
+        '401':
+          description: Código inválido ou expirado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/auth/staff/login:
+    post:
+      tags: [Autenticação]
+      summary: Login de supervisor ou admin
+      operationId: loginStaff
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, senha]
+              properties:
+                email:
+                  type: string
+                  format: email
+                senha:
+                  type: string
+                  format: password
+            example:
+              email: admin@teste.com
+              senha: senha12345
+      responses:
+        '200':
+          $ref: '#/components/responses/SessaoIniciada'
+        '401':
+          description: E-mail ou senha inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/auth/me:
+    get:
+      tags: [Autenticação]
+      summary: Usuário da sessão atual
+      operationId: me
+      security:
+        - sessao: []
+      responses:
+        '200':
+          description: Usuário logado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  usuario:
+                    $ref: '#/components/schemas/UsuarioSessao'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+
+  /api/auth/logout:
+    post:
+      tags: [Autenticação]
+      summary: Encerra a sessão
+      operationId: logout
+      security:
+        - sessao: []
+      responses:
+        '204':
+          description: Sessão revogada e cookie apagado
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+
+  /api/cliente/agendamentos:
+    get:
+      tags: [Cliente]
+      summary: Agendamentos do cliente logado
+      operationId: meusAgendamentos
+      security:
+        - sessao: []
+      responses:
+        '200':
+          description: Agendamentos do cliente, do mais recente para o mais antigo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agendamentos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgendamentoCliente'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/AcessoNegado'
+
+  /api/supervisor/agendamentos:
+    get:
+      tags: [Supervisor]
+      summary: Todos os agendamentos
+      operationId: todosAgendamentos
+      security:
+        - sessao: []
+      responses:
+        '200':
+          description: Todos os agendamentos, do mais recente para o mais antigo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agendamentos:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgendamentoStaff'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/AcessoNegado'
+
+  /api/admin/usuarios:
+    get:
+      tags: [Admin]
+      summary: Lista supervisores e admins
+      operationId: listarUsuarios
+      security:
+        - sessao: []
+      responses:
+        '200':
+          description: Usuários de staff, ordenados por nome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  usuarios:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UsuarioStaff'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/AcessoNegado'
+    post:
+      tags: [Admin]
+      summary: Cria um supervisor
+      operationId: criarSupervisor
+      security:
+        - sessao: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome, email, senha]
+              properties:
+                nome:
+                  type: string
+                  maxLength: 150
+                email:
+                  type: string
+                  format: email
+                  maxLength: 150
+                senha:
+                  type: string
+                  format: password
+                  minLength: 10
+            example:
+              nome: Supervisora Teste
+              email: sup@teste.com
+              senha: senha12345
+      responses:
+        '201':
+          description: Supervisor criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  usuario:
+                    $ref: '#/components/schemas/UsuarioSessao'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/AcessoNegado'
+        '409':
+          description: Já existe um usuário com este e-mail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '422':
+          description: Nome, e-mail ou senha inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/admin/usuarios/{id}/ativo:
+    patch:
+      tags: [Admin]
+      summary: Ativa ou desativa um supervisor
+      description: Desativar também revoga todas as sessões do supervisor.
+      operationId: definirAtivo
+      security:
+        - sessao: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ativo]
+              properties:
+                ativo:
+                  type: boolean
+            example:
+              ativo: false
+      responses:
+        '204':
+          description: Atualizado
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/AcessoNegado'
+        '404':
+          description: Supervisor não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '422':
+          description: '`ativo` não é booleano ou `id` não é numérico'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+components:
+  securitySchemes:
+    sessao:
+      type: apiKey
+      in: cookie
+      name: sessao
+      description: Cookie HttpOnly criado no login. Cliente dura 30 dias; staff, 8 horas.
+
+  responses:
+    SessaoIniciada:
+      description: Sessão criada; o token vem no cookie `sessao`
+      headers:
+        Set-Cookie:
+          schema:
+            type: string
+            example: sessao=abc123...; Path=/; HttpOnly; SameSite=Lax
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              usuario:
+                $ref: '#/components/schemas/UsuarioSessao'
+    NaoAutenticado:
+      description: Sem sessão válida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+          example:
+            erro: Não autenticado.
+    AcessoNegado:
+      description: Sessão válida, mas o papel não tem acesso
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+          example:
+            erro: Acesso negado.
+
+  schemas:
+    Erro:
+      type: object
+      properties:
+        erro:
+          type: string
+
+    Papel:
+      type: string
+      enum: [cliente, supervisor, admin]
+
+    UsuarioSessao:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome:
+          type: string
+        papel:
+          $ref: '#/components/schemas/Papel'
+
+    UsuarioStaff:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome:
+          type: string
+        email:
+          type: string
+          format: email
+        papel:
+          $ref: '#/components/schemas/Papel'
+        ativo:
+          type: boolean
+        created_at:
+          type: string
+          example: '2026-10-08 15:00:00'
+
+    Servico:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome:
+          type: string
+        preco:
+          type: string
+          description: Decimal com duas casas, enviado como texto
+          example: '45.00'
+        descricao:
+          type: string
+          nullable: true
+
+    AgendamentoCliente:
+      type: object
+      properties:
+        id:
+          type: integer
+        data_hora:
+          type: string
+          example: '2026-10-20 14:00:00'
+        status:
+          $ref: '#/components/schemas/StatusAgendamento'
+        observacoes:
+          type: string
+          nullable: true
+        servico:
+          type: string
+          description: Nome do serviço
+        preco:
+          type: string
+          example: '45.00'
+
+    AgendamentoStaff:
+      type: object
+      properties:
+        id:
+          type: integer
+        nome_cliente:
+          type: string
+        usuario_id:
+          type: integer
+          nullable: true
+        data_hora:
+          type: string
+          example: '2026-10-20 14:00:00'
+        status:
+          $ref: '#/components/schemas/StatusAgendamento'
+        observacoes:
+          type: string
+          nullable: true
+        servico:
+          type: string
+          description: Nome do serviço
+
+    StatusAgendamento:
+      type: string
+      enum: [pendente, confirmado, cancelado]

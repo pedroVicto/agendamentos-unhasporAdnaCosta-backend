@@ -46,6 +46,16 @@ services:
     networks:
       - app-network
 
+  # Caixa de entrada falsa para desenvolvimento: todo e-mail enviado pela
+  # aplicação aparece em http://localhost:8025 e não sai para a internet.
+  mailpit:
+    image: axllent/mailpit
+    container_name: agendamentos_mailpit
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      - app-network
+
 volumes:
   postgres_data:
 
