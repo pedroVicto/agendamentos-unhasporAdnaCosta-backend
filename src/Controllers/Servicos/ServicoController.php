@@ -10,26 +10,37 @@ use App\Core\Response;
 
 final class ServicoController
 {
+    private const COLUNAS = 'id, nome, preco, descricao, created_at, updated_at';
+
     // GET /api/servicos (público)
     public function listar(Request $request): Response
     {
         $servicos = Database::conexao()
-            ->query('SELECT id, nome, preco, descricao FROM servicos ORDER BY nome')
+            ->query('SELECT ' . self::COLUNAS . ' FROM servicos WHERE ativo = true ORDER BY nome')
             ->fetchAll();
 
-        return Response::json(['servicos' => $servicos]);
+        return Response::json([
+            'total'    => count($servicos),
+            'servicos' => array_map($this->formatar(...), $servicos),
+        ]);
     }
 
     // GET /api/servicos/{id} (público)
     public function buscar(Request $request): Response
     {
-        $servico = $this->encontrar((int) $request->params['id']);
+        $id = $request->params['id'];
 
-        if (!$servico) {
-            return Response::json(['erro' => 'Serviço não encontrado'], 404);
+        if (!$this->uuidValido($id)) {
+            return $this->idInvalido($id);
         }
 
-        return Response::json(['servico' => $servico]);
+        $servico = $this->encontrar($id);
+
+        if (!$servico) {
+            return $this->naoEncontrado($id);
+        }
+
+        return Response::json(['servico' => $this->formatar($servico)]);
     }
 
     // POST /api/servicos (admin)
@@ -39,95 +50,162 @@ final class ServicoController
         $erros = $this->validar($dados);
 
         if ($erros) {
-            return Response::json(['erros' => $erros], 422);
+            return $this->dadosInvalidos($erros);
         }
 
-        $pdo = Database::conexao();
-        $stmt = $pdo->prepare(
+        // O id (UUID aleatório) é gerado pelo próprio banco.
+        $stmt = Database::conexao()->prepare(
             'INSERT INTO servicos (nome, preco, descricao)
-             VALUES (:nome, :preco, :descricao)'
+             VALUES (:nome, :preco, :descricao)
+             RETURNING ' . self::COLUNAS
         );
-        $stmt->execute([
-            'nome'      => trim($dados['nome']),
-            'preco'     => $dados['preco'],
-            'descricao' => $dados['descricao'] ?? null,
-        ]);
+        $stmt->execute($this->parametros($dados));
+        $servico = $stmt->fetch();
 
-        return Response::json(['id' => (int) $pdo->lastInsertId()], 201);
+        return Response::json([
+            'mensagem' => "Serviço \"{$servico['nome']}\" criado com sucesso.",
+            'servico'  => $this->formatar($servico),
+        ], 201)->comHeader('Location', "/api/servicos/{$servico['id']}");
     }
 
     // PUT /api/servicos/{id} (admin)
     public function atualizar(Request $request): Response
     {
-        $id = (int) ($request->params['id'] ?? 0);
+        $id = $request->params['id'];
+
+        if (!$this->uuidValido($id)) {
+            return $this->idInvalido($id);
+        }
 
         if (!$this->encontrar($id)) {
-            return Response::json(['erro' => 'Serviço não encontrado'], 404);
+            return $this->naoEncontrado($id);
         }
 
         $dados = $request->corpo;
         $erros = $this->validar($dados);
 
         if ($erros) {
-            return Response::json(['erros' => $erros], 422);
+            return $this->dadosInvalidos($erros);
         }
 
         $stmt = Database::conexao()->prepare(
             'UPDATE servicos
              SET nome = :nome, preco = :preco, descricao = :descricao, updated_at = NOW()
-             WHERE id = :id'
+             WHERE id = :id
+             RETURNING ' . self::COLUNAS
         );
-        $stmt->execute([
-            'nome'      => trim($dados['nome']),
-            'preco'     => $dados['preco'],
-            'descricao' => $dados['descricao'] ?? null,
-            'id'        => $id,
-        ]);
+        $stmt->execute([...$this->parametros($dados), 'id' => $id]);
+        $servico = $stmt->fetch();
 
-        return Response::json(['mensagem' => 'Serviço atualizado']);
+        return Response::json([
+            'mensagem' => "Serviço \"{$servico['nome']}\" atualizado com sucesso.",
+            'servico'  => $this->formatar($servico),
+        ]);
     }
 
     // DELETE /api/servicos/{id} (admin) — soft delete
     public function remover(Request $request): Response
     {
-        $id = (int) $request->params['id'];
+        $id = $request->params['id'];
 
-        if (!$this->encontrar($id)) {
-            return Response::json(['erro' => 'Serviço não encontrado'], 404);
+        if (!$this->uuidValido($id)) {
+            return $this->idInvalido($id);
         }
 
+        $servico = $this->encontrar($id);
+
+        if (!$servico) {
+            return $this->naoEncontrado($id);
+        }
+
+        // Só desativa: os agendamentos antigos continuam apontando para ele.
         $stmt = Database::conexao()->prepare(
             'UPDATE servicos SET ativo = false, updated_at = NOW() WHERE id = :id'
         );
         $stmt->execute(['id' => $id]);
 
-        return Response::json(['mensagem' => 'Serviço removido']);
+        return Response::json([
+            'mensagem' => "Serviço \"{$servico['nome']}\" removido. Ele não aparece mais na listagem, "
+                . 'mas os agendamentos já feitos continuam registrados.',
+            'id'       => $id,
+        ]);
     }
 
     // --- auxiliares ---
 
-    private function encontrar(int $id): array|false
+    private function encontrar(string $id): array|false
     {
         $stmt = Database::conexao()->prepare(
-            'SELECT id, nome, preco, descricao FROM servicos WHERE id = :id AND ativo = true'
+            'SELECT ' . self::COLUNAS . ' FROM servicos WHERE id = :id AND ativo = true'
         );
         $stmt->execute(['id' => $id]);
 
         return $stmt->fetch();
     }
 
+    // Sem essa checagem, um id como "abc" faria o Postgres lançar erro (500).
+    private function uuidValido(string $id): bool
+    {
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id) === 1;
+    }
+
+    private function parametros(array $dados): array
+    {
+        $descricao = trim((string) ($dados['descricao'] ?? ''));
+
+        return [
+            'nome'      => trim($dados['nome']),
+            'preco'     => $dados['preco'],
+            'descricao' => $descricao === '' ? null : $descricao,
+        ];
+    }
+
+    // O Postgres devolve DECIMAL como string ("35.00"); a API devolve número.
+    private function formatar(array $servico): array
+    {
+        return [...$servico, 'preco' => (float) $servico['preco']];
+    }
+
+    private function idInvalido(string $id): Response
+    {
+        return Response::erro("O id \"{$id}\" não é válido. Use o id (UUID) retornado na listagem de serviços.", 400);
+    }
+
+    private function naoEncontrado(string $id): Response
+    {
+        return Response::erro("Nenhum serviço ativo encontrado com o id \"{$id}\".", 404);
+    }
+
+    private function dadosInvalidos(array $erros): Response
+    {
+        return Response::json([
+            'erro'   => 'Não foi possível salvar o serviço. Corrija os campos indicados.',
+            'campos' => $erros,
+        ], 422);
+    }
+
     private function validar(array $dados): array
     {
         $erros = [];
 
-        if (trim($dados['nome'] ?? '') === '') {
-            $erros['nome'] = 'Nome é obrigatório';
+        if (!is_string($dados['nome'] ?? null) || trim($dados['nome']) === '') {
+            $erros['nome'] = 'O nome é obrigatório. Ex.: "Manicure simples".';
         } elseif (mb_strlen(trim($dados['nome'])) > 100) {
-            $erros['nome'] = 'Nome deve ter no máximo 100 caracteres';
+            $erros['nome'] = 'O nome deve ter no máximo 100 caracteres (enviado: ' . mb_strlen(trim($dados['nome'])) . ').';
         }
 
-        if (!isset($dados['preco']) || !is_numeric($dados['preco']) || $dados['preco'] < 0) {
-            $erros['preco'] = 'Preço deve ser um número maior ou igual a 0';
+        if (!isset($dados['preco'])) {
+            $erros['preco'] = 'O preço é obrigatório. Ex.: 35.90';
+        } elseif (!is_numeric($dados['preco'])) {
+            $erros['preco'] = 'O preço deve ser um número, usando ponto para os centavos. Ex.: 35.90';
+        } elseif ($dados['preco'] < 0) {
+            $erros['preco'] = 'O preço não pode ser negativo.';
+        } elseif ($dados['preco'] > 99999999.99) {
+            $erros['preco'] = 'O preço máximo permitido é 99999999.99.';
+        }
+
+        if (isset($dados['descricao']) && !is_string($dados['descricao'])) {
+            $erros['descricao'] = 'A descrição deve ser um texto.';
         }
 
         return $erros;

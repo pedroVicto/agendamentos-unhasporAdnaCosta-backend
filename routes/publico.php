@@ -12,6 +12,7 @@ use App\Core\Router;
 return static function (Router $router): void {
     $router->grupo('/api', [], static function (Router $router): void {
         $router->get('/servicos', [ServicoController::class, 'listar']);
+        $router->get('/servicos/{id}', [ServicoController::class, 'buscar']);
 
         // Cliente: código de 6 dígitos
         $router->post('/auth/cliente/codigo', [AuthClienteController::class, 'solicitarCodigo']);
