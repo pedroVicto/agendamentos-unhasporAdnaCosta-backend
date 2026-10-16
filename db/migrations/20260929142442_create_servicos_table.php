@@ -25,8 +25,9 @@ final class CreateServicosTable extends AbstractMigration
             ->addColumn('nome', 'string', ['limit' => 100, 'null' => false])
             ->addColumn('preco', 'decimal', ['precision' => 10, 'scale' => 2, 'null' => false])
             ->addColumn('descricao', 'text', ['null' => true])
+            ->addColumn('ativo', 'boolean', ['default' => true, 'null' => false]) 
             ->addColumn('created_at', 'timestamp', ['default' => 'CURRENT_TIMESTAMP'])
-            ->addColumn('updated_at', 'timestamp', ['null' => true])
-            ->create();
+            ->addColumn('updated_at', 'timestamp', ['null' => true])   
+            ->create();     
     }
 }

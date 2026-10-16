@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Controllers\SessaoController;
+use App\Controllers\Secao\SessaoController;
 use App\Core\Router;
 use App\Middleware\AuthMiddleware;
 

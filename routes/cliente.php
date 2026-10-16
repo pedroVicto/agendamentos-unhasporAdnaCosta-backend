@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Controllers\AgendamentoController;
+use App\Controllers\Agendamentos\AgendamentoController;
 use App\Core\Router;
 use App\Middleware\AuthMiddleware;
 use App\Middleware\PapelMiddleware;

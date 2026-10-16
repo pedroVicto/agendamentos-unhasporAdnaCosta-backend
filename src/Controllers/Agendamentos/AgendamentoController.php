@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Controllers;
+namespace App\Controllers\Agendamentos;
 
 use App\Core\Database;
 use App\Core\Request;

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-use App\Controllers\AuthClienteController;
-use App\Controllers\AuthStaffController;
-use App\Controllers\ServicoController;
+use App\Controllers\Auth\AuthClienteController;
+use App\Controllers\Auth\AuthStaffController;
+use App\Controllers\Servicos\ServicoController;
 use App\Core\Router;
 
 // Rotas sem login: qualquer visitante acessa. "Público" não é um papel,
