@@ -48,7 +48,7 @@ final class SessionService
     public function resolver(string $token): ?array
     {
         $busca = Database::conexao()->prepare(
-            'SELECT u.id, u.nome, u.email, u.telefone, u.papel
+            'SELECT u.id, u.nome, u.email, u.telefone, u.papel, u.trocar_senha
                FROM sessoes s
                JOIN usuarios u ON u.id = s.usuario_id
               WHERE s.token_hash = :token_hash
@@ -75,12 +75,23 @@ final class SessionService
         )->execute(['id' => $usuarioId]);
     }
 
+    // Depois de trocar a senha, só a sessão atual continua valendo.
+    public function revogarOutras(int $usuarioId, string $tokenAtual): void
+    {
+        Database::conexao()->prepare(
+            'UPDATE sessoes SET revogada_em = NOW()
+              WHERE usuario_id = :id AND revogada_em IS NULL AND token_hash <> :token_hash'
+        )->execute(['id' => $usuarioId, 'token_hash' => self::hash($tokenAtual)]);
+    }
+
     public static function publico(array $usuario): array
     {
         return [
             'id' => $usuario['id'],
             'nome' => $usuario['nome'],
             'papel' => $usuario['papel'],
+            // O front manda para a tela de troca de senha enquanto for true.
+            'trocar_senha' => (bool) ($usuario['trocar_senha'] ?? false),
         ];
     }
 

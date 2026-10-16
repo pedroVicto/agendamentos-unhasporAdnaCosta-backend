@@ -23,6 +23,12 @@ final class PapelMiddleware implements Middleware
             return Response::erro('Acesso negado.', 403);
         }
 
+        // Com a senha temporária, só as rotas de /api/auth (me, logout,
+        // trocar senha) respondem; as áreas protegidas ficam fechadas.
+        if ($request->usuario['trocar_senha'] ?? false) {
+            return Response::erro('Troque a senha temporária antes de continuar.', 403);
+        }
+
         return $proximo($request);
     }
 }

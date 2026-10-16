@@ -20,6 +20,29 @@ final class AuthService
     }
 
     /**
+     * Troca a senha de quem está logado. Devolve false se a senha atual
+     * não confere.
+     */
+    public function trocarSenha(int $usuarioId, string $senhaAtual, string $novaSenha): bool
+    {
+        $pdo = Database::conexao();
+
+        $busca = $pdo->prepare('SELECT senha_hash FROM usuarios WHERE id = :id AND senha_hash IS NOT NULL');
+        $busca->execute(['id' => $usuarioId]);
+        $hash = $busca->fetchColumn();
+
+        if ($hash === false || !password_verify($senhaAtual, $hash)) {
+            return false;
+        }
+
+        $pdo->prepare(
+            'UPDATE usuarios SET senha_hash = :hash, trocar_senha = FALSE, updated_at = NOW() WHERE id = :id'
+        )->execute(['hash' => self::hashSenha($novaSenha), 'id' => $usuarioId]);
+
+        return true;
+    }
+
+    /**
      * Devolve o usuário em caso de sucesso. Qualquer falha (e-mail
      * inexistente, cliente tentando entrar aqui, senha errada, conta
      * bloqueada) devolve null, para a resposta ser sempre a mesma.
@@ -29,7 +52,7 @@ final class AuthService
         $pdo = Database::conexao();
 
         $busca = $pdo->prepare(
-            "SELECT id, nome, papel, senha_hash, bloqueado_ate,
+            "SELECT id, nome, papel, senha_hash, trocar_senha, bloqueado_ate,
                     (bloqueado_ate IS NOT NULL AND bloqueado_ate > NOW()) AS bloqueado
                FROM usuarios
               WHERE email = :email

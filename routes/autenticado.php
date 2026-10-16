@@ -11,5 +11,6 @@ return static function (Router $router): void {
     $router->grupo('/api/auth', [new AuthMiddleware()], static function (Router $router): void {
         $router->get('/me', [SessaoController::class, 'me']);
         $router->post('/logout', [SessaoController::class, 'logout']);
+        $router->post('/senha', [SessaoController::class, 'trocarSenha']);
     });
 };

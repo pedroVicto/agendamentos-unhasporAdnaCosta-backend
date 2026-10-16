@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Controllers\Admin;
 
 use App\Core\Database;
+use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\AuthService;
 use App\Services\Contato;
+use App\Services\Notificacao\Email;
 use App\Services\SessionService;
 use PDOException;
 
@@ -29,6 +31,8 @@ final class UsuarioController
     }
 
     // POST /api/admin/usuarios  {nome, email, senha}
+    // A senha definida pelo admin é temporária: vai para o e-mail do
+    // supervisor e ele é obrigado a trocá-la no primeiro acesso.
     public function criarSupervisor(Request $request): Response
     {
         $nome = $request->input('nome');
@@ -42,10 +46,15 @@ final class UsuarioController
             return Response::erro('A senha precisa ter ao menos ' . AuthService::SENHA_MINIMA . ' caracteres.', 422);
         }
 
+        $pdo = Database::conexao();
+
+        // Se o e-mail não sair, o cadastro é desfeito: um supervisor sem a
+        // senha não teria como entrar, e o admin pode tentar de novo.
+        $pdo->beginTransaction();
         try {
-            $insercao = Database::conexao()->prepare(
-                "INSERT INTO usuarios (nome, email, senha_hash, papel, verificado_em)
-                 VALUES (:nome, :email, :hash, 'supervisor', NOW())
+            $insercao = $pdo->prepare(
+                "INSERT INTO usuarios (nome, email, senha_hash, trocar_senha, papel, verificado_em)
+                 VALUES (:nome, :email, :hash, TRUE, 'supervisor', NOW())
                  RETURNING id"
             );
             $insercao->execute([
@@ -53,15 +62,26 @@ final class UsuarioController
                 'email' => $email,
                 'hash' => AuthService::hashSenha($senha),
             ]);
+            $id = $insercao->fetchColumn();
+
+            Email::enviar($email, 'Seu acesso de supervisor', self::mensagemBoasVindas($nome, $email, $senha));
+
+            $pdo->commit();
         } catch (PDOException $e) {
+            $pdo->rollBack();
             if ($e->getCode() === '23505') {
                 return Response::erro('Já existe um usuário com este e-mail.', 409);
             }
             throw $e;
+        } catch (\RuntimeException $e) {
+            $pdo->rollBack();
+            error_log($e->getMessage());
+
+            return Response::erro('Não foi possível enviar o e-mail com a senha. O supervisor não foi criado.', 502);
         }
 
         return Response::json([
-            'usuario' => ['id' => $insercao->fetchColumn(), 'nome' => $nome, 'papel' => 'supervisor'],
+            'usuario' => ['id' => $id, 'nome' => $nome, 'papel' => 'supervisor'],
         ], 201);
     }
 
@@ -90,5 +110,18 @@ final class UsuarioController
         }
 
         return Response::vazia();
+    }
+
+    private static function mensagemBoasVindas(string $nome, string $email, string $senha): string
+    {
+        $acesso = Env::get('FRONTEND_URL');
+
+        return "Olá, {$nome}!\n\n"
+            . "Sua conta de supervisor foi criada.\n\n"
+            . "Usuário (login): {$email}\n"
+            . "Senha temporária: {$senha}\n\n"
+            . ($acesso !== null ? "Acesse: {$acesso}\n\n" : '')
+            . 'No primeiro acesso você vai precisar definir uma nova senha. '
+            . 'Se você não esperava este e-mail, avise o administrador.';
     }
 }

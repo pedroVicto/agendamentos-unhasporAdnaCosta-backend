@@ -93,7 +93,7 @@ Há três papéis: `cliente`, `supervisor` e `admin`. Todos terminam com uma ses
 | Quem | Como entra |
 |---|---|
 | Cliente | Sem senha. Informa nome + e-mail ou telefone, recebe um código de 6 dígitos (vale 10 minutos, 5 tentativas) e o digita. A conta é criada no primeiro pedido de código. |
-| Supervisor | E-mail + senha. É criado por um admin. |
+| Supervisor | E-mail + senha. É criado por um admin (`POST /api/admin/usuarios` com `{"nome", "email", "senha"}`); a senha definida pelo admin é temporária e vai para o e-mail do supervisor, junto com o login. No primeiro acesso ele precisa trocá-la: até lá, as rotas de `/api/supervisor` respondem `403`. |
 | Admin | E-mail + senha. O primeiro é criado pelo `AdminSeeder`. |
 
 Cada área é um arquivo em `routes/`, com a proteção aplicada ao grupo inteiro:
@@ -101,7 +101,7 @@ Cada área é um arquivo em `routes/`, com a proteção aplicada ao grupo inteir
 | Arquivo | Prefixo | Quem acessa |
 |---|---|---|
 | `publico.php` | `/api/servicos`, `/api/auth/...` | Qualquer visitante, sem login |
-| `autenticado.php` | `/api/auth/me`, `/api/auth/logout` | Qualquer usuário logado |
+| `autenticado.php` | `/api/auth/me`, `/api/auth/logout`, `/api/auth/senha` | Qualquer usuário logado |
 | `cliente.php` | `/api/cliente/...` | Só `cliente` |
 | `supervisor.php` | `/api/supervisor/...` | `supervisor` e `admin` |
 | `admin.php` | `/api/admin/...` | Só `admin` |
@@ -117,6 +117,7 @@ Rotas de autenticação (corpo sempre em JSON):
 | `POST /api/auth/staff/login` | `{"email", "senha"}` |
 | `GET /api/auth/me` | — |
 | `POST /api/auth/logout` | — |
+| `POST /api/auth/senha` | `{"senha_atual", "nova_senha"}` — supervisor e admin; derruba as outras sessões |
 
 O front-end precisa enviar as requisições com `credentials: 'include'` para o cookie ir junto, e o endereço dele tem que estar em `FRONTEND_URL`.
 
@@ -155,4 +156,6 @@ Como o `docker-compose.yml` expõe a porta do Postgres para a sua máquina, use 
 - **`could not find driver` no PHP**: a extensão `pdo_pgsql` não foi instalada corretamente. Rode `docker compose up -d --build` para reconstruir a imagem do PHP.
 - **`password authentication failed`**: as credenciais do `.env` foram alteradas *depois* que o volume do banco já tinha sido criado. As variáveis `POSTGRES_*` só valem na primeira inicialização do volume. Para resetar: `docker compose down -v` e depois `docker compose up -d --build`.
 - **Cliente externo (Beekeeper etc.) não conecta / porta não mapeada**: confira no `docker compose ps` se a porta do `postgres` aparece como `127.0.0.1:5432->5432/tcp`. Se aparecer só `5432/tcp`, falta o bloco `ports` no serviço `postgres` do `docker-compose.yml`.
+- **`Erro interno.` (500) em qualquer rota**: veja o motivo real em `docker compose logs php`. Os mais comuns: `vendor/` não instalado (rode o `composer install`), tabelas não criadas (rode o `phinx migrate`) ou `APP_KEY` vazia no `.env`.
+- **`port is already allocated` ao subir**: outro programa já usa a porta 8080 ou 5432 (por exemplo, um Postgres instalado direto no Windows). Pare esse programa ou troque a porta da esquerda no `docker-compose.yml` (ex.: `"8081:80"`).
 - **`getaddrinfo ENOTFOUND postgres`** ao conectar por um cliente externo: use `localhost` como host, não `postgres` — esse nome só existe dentro da rede do Docker.
