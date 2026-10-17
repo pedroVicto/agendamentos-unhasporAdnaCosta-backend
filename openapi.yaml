@@ -44,6 +44,66 @@ paths:
                     items:
                       $ref: '#/components/schemas/Servico'
 
+  /api/servicos/{id}/horarios:
+    get:
+      tags: [Público]
+      summary: Horários livres de um serviço num dia
+      description: |
+        Calculado a partir do expediente semanal, da duração do serviço, dos
+        bloqueios e dos agendamentos pendentes/confirmados. É a mesma regra
+        usada ao criar o agendamento: o que aparece aqui é o que é aceito.
+        Não exige login (o login só é pedido na hora de agendar).
+      operationId: horariosLivres
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - name: data
+          in: query
+          description: Dia no formato AAAA-MM-DD. Sem ela, hoje.
+          schema:
+            type: string
+            format: date
+            example: '2026-10-20'
+      responses:
+        '200':
+          description: Inícios livres, no fuso do salão (APP_TIMEZONE)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    format: date
+                  servico_id:
+                    type: string
+                    format: uuid
+                  duracao_minutos:
+                    type: integer
+                  ultimo_dia:
+                    type: string
+                    format: date
+                    description: Último dia aceito (AGENDA_JANELA_DIAS)
+                  horarios:
+                    type: array
+                    items:
+                      type: string
+                      example: '09:30'
+        '400':
+          description: id não é um UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '404':
+          description: Serviço inexistente ou inativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+
   /api/auth/cliente/codigo:
     post:
       tags: [Autenticação]
@@ -258,6 +318,107 @@ paths:
           $ref: '#/components/responses/NaoAutenticado'
         '403':
           $ref: '#/components/responses/AcessoNegado'
+    post:
+      tags: [Cliente]
+      summary: Pede um horário
+      description: |
+        O pedido nasce `pendente` e já reserva o horário até um supervisor
+        responder. Dono e nome do cliente vêm da sessão. O cliente pode ter
+        no máximo `AGENDA_MAX_PENDENTES` pedidos pendentes ao mesmo tempo.
+        Os supervisores recebem um e-mail a cada pedido.
+      operationId: criarAgendamento
+      security:
+        - sessao: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [servico_id, data_hora]
+              properties:
+                servico_id:
+                  type: string
+                  format: uuid
+                data_hora:
+                  type: string
+                  description: Um dos horários de /api/servicos/{id}/horarios
+                  example: '2026-10-20T14:00'
+                observacoes:
+                  type: string
+                  maxLength: 500
+      responses:
+        '201':
+          description: Pedido criado (pendente)
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensagem:
+                    type: string
+                  agendamento:
+                    $ref: '#/components/schemas/AgendamentoCliente'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '403':
+          $ref: '#/components/responses/AcessoNegado'
+        '404':
+          description: Serviço inexistente ou inativo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '409':
+          description: O horário foi reservado por outra pessoa no mesmo instante
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '422':
+          description: Campos inválidos ou horário indisponível (fora do expediente, bloqueado, ocupado, no passado...)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '429':
+          description: Limite de pedidos pendentes atingido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/cliente/agendamentos/{id}/cancelar:
+    patch:
+      tags: [Cliente]
+      summary: Cliente cancela o próprio agendamento
+      description: |
+        Pendente: até o horário. Confirmado: só com `AGENDA_CANCELAMENTO_HORAS`
+        de antecedência. Agendamento de outro cliente responde 404.
+      operationId: cancelarAgendamentoCliente
+      security:
+        - sessao: []
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      responses:
+        '200':
+          $ref: '#/components/responses/AgendamentoAtualizado'
+        '401':
+          $ref: '#/components/responses/NaoAutenticado'
+        '404':
+          $ref: '#/components/responses/AgendamentoNaoEncontrado'
+        '409':
+          $ref: '#/components/responses/TransicaoInvalida'
+        '422':
+          description: Já passou ou fora do prazo de cancelamento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
 
   /api/supervisor/agendamentos:
     get:
@@ -266,9 +427,25 @@ paths:
       operationId: todosAgendamentos
       security:
         - sessao: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/StatusAgendamento'
+        - name: de
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: ate
+          in: query
+          description: Inclui o dia inteiro
+          schema:
+            type: string
+            format: date
       responses:
         '200':
-          description: Todos os agendamentos, do mais recente para o mais antigo
+          description: Agendamentos, do mais recente para o mais antigo
           content:
             application/json:
               schema:
@@ -282,6 +459,224 @@ paths:
           $ref: '#/components/responses/NaoAutenticado'
         '403':
           $ref: '#/components/responses/AcessoNegado'
+        '422':
+          description: Filtro inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/supervisor/agendamentos/{id}/confirmar:
+    patch:
+      tags: [Supervisor]
+      summary: Aceita um pedido pendente
+      description: O cliente é avisado (e-mail, ou SMS se só tiver telefone).
+      operationId: confirmarAgendamento
+      security:
+        - sessao: []
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      responses:
+        '200':
+          $ref: '#/components/responses/AgendamentoAtualizado'
+        '404':
+          $ref: '#/components/responses/AgendamentoNaoEncontrado'
+        '409':
+          $ref: '#/components/responses/TransicaoInvalida'
+        '422':
+          description: O horário já passou
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/supervisor/agendamentos/{id}/recusar:
+    patch:
+      tags: [Supervisor]
+      summary: Recusa um pedido pendente
+      description: Libera o horário. O motivo é enviado ao cliente.
+      operationId: recusarAgendamento
+      security:
+        - sessao: []
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      requestBody:
+        $ref: '#/components/requestBodies/Motivo'
+      responses:
+        '200':
+          $ref: '#/components/responses/AgendamentoAtualizado'
+        '404':
+          $ref: '#/components/responses/AgendamentoNaoEncontrado'
+        '409':
+          $ref: '#/components/responses/TransicaoInvalida'
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+
+  /api/supervisor/agendamentos/{id}/cancelar:
+    patch:
+      tags: [Supervisor]
+      summary: Cancela um agendamento já confirmado
+      description: Libera o horário. O motivo é enviado ao cliente.
+      operationId: cancelarAgendamentoSupervisor
+      security:
+        - sessao: []
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      requestBody:
+        $ref: '#/components/requestBodies/Motivo'
+      responses:
+        '200':
+          $ref: '#/components/responses/AgendamentoAtualizado'
+        '404':
+          $ref: '#/components/responses/AgendamentoNaoEncontrado'
+        '409':
+          $ref: '#/components/responses/TransicaoInvalida'
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+
+  /api/supervisor/expediente:
+    get:
+      tags: [Supervisor]
+      summary: Expediente semanal
+      operationId: listarExpediente
+      security:
+        - sessao: []
+      responses:
+        '200':
+          $ref: '#/components/responses/Expediente'
+    put:
+      tags: [Supervisor]
+      summary: Substitui o expediente da semana inteira
+      description: |
+        Um dia pode ter várias faixas (ex.: deixar o almoço de fora). Dia sem
+        faixa é dia fechado. Agendamentos já feitos não são alterados.
+      operationId: substituirExpediente
+      security:
+        - sessao: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [faixas]
+              properties:
+                faixas:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FaixaExpediente'
+            example:
+              faixas:
+                - {dia_semana: 2, inicio: '09:00', fim: '12:00'}
+                - {dia_semana: 2, inicio: '13:00', fim: '18:00'}
+      responses:
+        '200':
+          $ref: '#/components/responses/Expediente'
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+
+  /api/supervisor/bloqueios:
+    get:
+      tags: [Supervisor]
+      summary: Lista bloqueios da agenda
+      description: Sem filtro, de hoje em diante.
+      operationId: listarBloqueios
+      security:
+        - sessao: []
+      parameters:
+        - name: de
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: ate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Bloqueios ordenados pelo início
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bloqueios:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Bloqueio'
+    post:
+      tags: [Supervisor]
+      summary: Bloqueia um período (imprevisto, folga, feriado...)
+      description: |
+        Se já houver agendamento pendente/confirmado no período, responde 409
+        com a lista: recuse ou cancele cada um antes (o cliente é avisado).
+      operationId: criarBloqueio
+      security:
+        - sessao: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [inicio, fim, motivo]
+              properties:
+                inicio:
+                  type: string
+                  example: '2026-10-20T14:00'
+                fim:
+                  type: string
+                  example: '2026-10-20T15:00'
+                motivo:
+                  type: string
+                  maxLength: 150
+                  example: imprevisto
+      responses:
+        '201':
+          description: Bloqueio criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bloqueio:
+                    $ref: '#/components/schemas/Bloqueio'
+        '409':
+          description: Há agendamentos no período
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  erro:
+                    type: string
+                  agendamentos:
+                    type: array
+                    items:
+                      type: object
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+
+  /api/supervisor/bloqueios/{id}:
+    delete:
+      tags: [Supervisor]
+      summary: Remove um bloqueio
+      operationId: removerBloqueio
+      security:
+        - sessao: []
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      responses:
+        '204':
+          description: Removido
+        '404':
+          description: Não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
 
   /api/admin/usuarios:
     get:
@@ -371,12 +766,7 @@ paths:
       security:
         - sessao: []
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-          example: 2
+        - $ref: '#/components/parameters/IdUuid'
       requestBody:
         required: true
         content:
@@ -402,8 +792,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Erro'
+        '400':
+          description: '`id` não é um UUID válido'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
         '422':
-          description: '`ativo` não é booleano ou `id` não é numérico'
+          description: '`ativo` não é booleano'
           content:
             application/json:
               schema:
@@ -417,7 +813,75 @@ components:
       name: sessao
       description: Cookie HttpOnly criado no login. Cliente dura 30 dias; staff, 8 horas.
 
+  parameters:
+    IdUuid:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  requestBodies:
+    Motivo:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [motivo]
+            properties:
+              motivo:
+                type: string
+                maxLength: 255
+                description: Enviado ao cliente
+
   responses:
+    DadosInvalidos:
+      description: Campos inválidos
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              erro:
+                type: string
+              campos:
+                type: object
+                additionalProperties:
+                  type: string
+    AgendamentoAtualizado:
+      description: Agendamento com o novo status
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              agendamento:
+                $ref: '#/components/schemas/AgendamentoCliente'
+    AgendamentoNaoEncontrado:
+      description: Não existe (ou não é seu)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+    TransicaoInvalida:
+      description: 'O status atual não permite a ação (ex.: já confirmado por outro supervisor)'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Erro'
+    Expediente:
+      description: Faixas da semana
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              faixas:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FaixaExpediente'
     SessaoIniciada:
       description: Sessão criada; o token vem no cookie `sessao`
       headers:
@@ -464,7 +928,8 @@ components:
       type: object
       properties:
         id:
-          type: integer
+          type: string
+          format: uuid
         nome:
           type: string
         papel:
@@ -474,7 +939,8 @@ components:
       type: object
       properties:
         id:
-          type: integer
+          type: string
+          format: uuid
         nome:
           type: string
         email:
@@ -492,59 +958,120 @@ components:
       type: object
       properties:
         id:
-          type: integer
+          type: string
+          format: uuid
         nome:
           type: string
         preco:
-          type: string
-          description: Decimal com duas casas, enviado como texto
-          example: '45.00'
+          type: number
+          example: 45.0
         descricao:
           type: string
           nullable: true
+        duracao_minutos:
+          type: integer
+          description: Entre 15 e 480, múltiplo de 5. Opcional ao criar (padrão 60).
+          example: 60
 
     AgendamentoCliente:
       type: object
       properties:
         id:
-          type: integer
+          type: string
+          format: uuid
         data_hora:
           type: string
           example: '2026-10-20 14:00:00'
+        data_hora_fim:
+          type: string
+          example: '2026-10-20 15:00:00'
         status:
           $ref: '#/components/schemas/StatusAgendamento'
+        motivo:
+          type: string
+          nullable: true
+          description: Motivo da recusa ou do cancelamento
         observacoes:
           type: string
           nullable: true
+        servico_id:
+          type: string
+          format: uuid
         servico:
           type: string
           description: Nome do serviço
         preco:
-          type: string
-          example: '45.00'
+          type: number
+          example: 45.0
 
     AgendamentoStaff:
-      type: object
-      properties:
-        id:
-          type: integer
-        nome_cliente:
-          type: string
-        usuario_id:
-          type: integer
-          nullable: true
-        data_hora:
-          type: string
-          example: '2026-10-20 14:00:00'
-        status:
-          $ref: '#/components/schemas/StatusAgendamento'
-        observacoes:
-          type: string
-          nullable: true
-        servico:
-          type: string
-          description: Nome do serviço
+      allOf:
+        - $ref: '#/components/schemas/AgendamentoCliente'
+        - type: object
+          properties:
+            nome_cliente:
+              type: string
+            usuario_id:
+              type: string
+              format: uuid
+              nullable: true
+            email_cliente:
+              type: string
+              nullable: true
+            telefone_cliente:
+              type: string
+              nullable: true
+            cancelado_por:
+              type: string
+              enum: [cliente, supervisor]
+              nullable: true
+            respondido_por:
+              type: string
+              nullable: true
+              description: Nome de quem confirmou/recusou/cancelou
+            respondido_em:
+              type: string
+              nullable: true
+            created_at:
+              type: string
 
     StatusAgendamento:
       type: string
-      enum: [pendente, confirmado, cancelado]
+      description: pendente e confirmado ocupam o horário; recusado e cancelado o liberam
+      enum: [pendente, confirmado, recusado, cancelado]
+
+    FaixaExpediente:
+      type: object
+      required: [dia_semana, inicio, fim]
+      properties:
+        dia_semana:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 = domingo ... 6 = sábado
+        inicio:
+          type: string
+          example: '09:00'
+        fim:
+          type: string
+          example: '18:00'
+
+    Bloqueio:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        inicio:
+          type: string
+          example: '2026-10-20 14:00:00'
+        fim:
+          type: string
+          example: '2026-10-20 15:00:00'
+        motivo:
+          type: string
+        criado_por:
+          type: string
+          nullable: true
+        created_at:
+          type: string

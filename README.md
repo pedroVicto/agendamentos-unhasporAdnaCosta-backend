@@ -123,6 +123,43 @@ O front-end precisa enviar as requisições com `credentials: 'include'` para o 
 
 SMS e WhatsApp usam a Twilio (`TWILIO_*` no `.env`). Sem essas credenciais, com `APP_ENV=local`, o código é só gravado no log: `docker compose logs -f php`.
 
+## Agendamentos
+
+Fluxo: o visitante vê os horários livres de um serviço sem login → para pedir, precisa estar logado como cliente → o pedido nasce `pendente` → um supervisor (ou admin) confirma ou recusa.
+
+```
+pendente ──confirmar──▶ confirmado ──cancelar (supervisor)──▶ cancelado
+   │                        │
+   ├──recusar──▶ recusado   └──cancelar (cliente, com antecedência)──▶ cancelado
+   └──cancelar (cliente)──▶ cancelado
+```
+
+Como os horários livres são calculados:
+
+- **Expediente** (`PUT /api/supervisor/expediente`): faixas por dia da semana, ex.: terça 09:00–12:00 e 13:00–18:00. Sem expediente cadastrado, nenhum horário aparece.
+- **Duração do serviço** (`duracao_minutos`, padrão 60): o atendimento tem que caber inteiro dentro de uma faixa.
+- **Bloqueios** (`POST /api/supervisor/bloqueios`): períodos sem atendimento, com motivo (ex.: 20/10 das 14:00 às 15:00, "imprevisto"). Se já houver cliente marcado no período, a API recusa (409) e lista os agendamentos, para que sejam recusados/cancelados antes — assim o cliente sempre é avisado.
+- **Agendamentos pendentes e confirmados** ocupam o horário; recusados e cancelados o liberam.
+- Regras do `.env`: `AGENDA_INTERVALO_MINUTOS` (grade de inícios), `AGENDA_ANTECEDENCIA_MINUTOS`, `AGENDA_JANELA_DIAS`, `AGENDA_MAX_PENDENTES` e `AGENDA_CANCELAMENTO_HORAS`.
+
+A mesma regra (`src/Services/AgendaService.php`) monta a lista de horários e valida o pedido. Contra dois pedidos simultâneos no mesmo horário há duas camadas: uma trava (`pg_advisory_xact_lock`) durante a criação, e uma constraint `EXCLUDE` no banco que impede dois agendamentos ativos sobrepostos.
+
+| Rota | Quem | Corpo |
+|---|---|---|
+| `GET /api/servicos/{id}/horarios?data=AAAA-MM-DD` | Público | — |
+| `POST /api/cliente/agendamentos` | Cliente | `{"servico_id", "data_hora": "2026-10-20T14:00", "observacoes"?}` |
+| `PATCH /api/cliente/agendamentos/{id}/cancelar` | Cliente | — |
+| `GET /api/supervisor/agendamentos?status=&de=&ate=` | Supervisor | — |
+| `PATCH /api/supervisor/agendamentos/{id}/confirmar` | Supervisor | — |
+| `PATCH /api/supervisor/agendamentos/{id}/recusar` | Supervisor | `{"motivo"}` |
+| `PATCH /api/supervisor/agendamentos/{id}/cancelar` | Supervisor | `{"motivo"}` (só confirmados) |
+| `GET` / `PUT /api/supervisor/expediente` | Supervisor | `{"faixas": [{"dia_semana": 0-6, "inicio": "09:00", "fim": "12:00"}]}` |
+| `GET` / `POST /api/supervisor/bloqueios`, `DELETE /api/supervisor/bloqueios/{id}` | Supervisor | `{"inicio", "fim", "motivo"}` |
+
+Avisos: a cada pedido novo (e a cada cancelamento feito pelo cliente), supervisores e admins recebem e-mail. Ao confirmar, recusar ou cancelar, o cliente recebe e-mail — ou SMS, se só tiver telefone. Falha no envio não desfaz a ação; o erro vai para o log.
+
+Os horários (`data_hora`, expediente, bloqueios) estão no fuso do salão (`APP_TIMEZONE`, padrão `America/Sao_Paulo`).
+
 ## Conectando ao banco por um cliente externo (Beekeeper, DBeaver, etc.)
 
 Como o `docker-compose.yml` expõe a porta do Postgres para a sua máquina, use estes dados na configuração da conexão:

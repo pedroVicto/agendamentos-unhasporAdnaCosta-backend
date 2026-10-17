@@ -12,6 +12,10 @@ require __DIR__ . '/../vendor/autoload.php';
 
 Env::carregar(__DIR__ . '/../.env');
 
+// Fuso do salão: é nele que a agenda (data_hora, expediente, bloqueios)
+// é calculada. O banco continua em UTC para created_at, sessões e códigos.
+date_default_timezone_set(Env::get('APP_TIMEZONE', 'America/Sao_Paulo'));
+
 $router = new Router();
 
 // Cada área tem o seu arquivo; a proteção por papel está no grupo de cada um.

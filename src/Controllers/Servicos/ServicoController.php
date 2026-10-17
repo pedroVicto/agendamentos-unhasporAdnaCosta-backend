@@ -7,10 +7,11 @@ namespace App\Controllers\Servicos;
 use App\Core\Database;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Uuid;
 
 final class ServicoController
 {
-    private const COLUNAS = 'id, nome, preco, descricao, created_at, updated_at';
+    private const COLUNAS = 'id, nome, preco, descricao, duracao_minutos, created_at, updated_at';
 
     // GET /api/servicos (público)
     public function listar(Request $request): Response
@@ -30,7 +31,7 @@ final class ServicoController
     {
         $id = $request->params['id'];
 
-        if (!$this->uuidValido($id)) {
+        if (!Uuid::valido($id)) {
             return $this->idInvalido($id);
         }
 
@@ -55,8 +56,8 @@ final class ServicoController
 
         // O id (UUID aleatório) é gerado pelo próprio banco.
         $stmt = Database::conexao()->prepare(
-            'INSERT INTO servicos (nome, preco, descricao)
-             VALUES (:nome, :preco, :descricao)
+            'INSERT INTO servicos (nome, preco, descricao, duracao_minutos)
+             VALUES (:nome, :preco, :descricao, COALESCE(:duracao_minutos, 60))
              RETURNING ' . self::COLUNAS
         );
         $stmt->execute($this->parametros($dados));
@@ -73,7 +74,7 @@ final class ServicoController
     {
         $id = $request->params['id'];
 
-        if (!$this->uuidValido($id)) {
+        if (!Uuid::valido($id)) {
             return $this->idInvalido($id);
         }
 
@@ -90,7 +91,8 @@ final class ServicoController
 
         $stmt = Database::conexao()->prepare(
             'UPDATE servicos
-             SET nome = :nome, preco = :preco, descricao = :descricao, updated_at = NOW()
+             SET nome = :nome, preco = :preco, descricao = :descricao,
+                 duracao_minutos = COALESCE(:duracao_minutos, duracao_minutos), updated_at = NOW()
              WHERE id = :id
              RETURNING ' . self::COLUNAS
         );
@@ -108,7 +110,7 @@ final class ServicoController
     {
         $id = $request->params['id'];
 
-        if (!$this->uuidValido($id)) {
+        if (!Uuid::valido($id)) {
             return $this->idInvalido($id);
         }
 
@@ -143,12 +145,6 @@ final class ServicoController
         return $stmt->fetch();
     }
 
-    // Sem essa checagem, um id como "abc" faria o Postgres lançar erro (500).
-    private function uuidValido(string $id): bool
-    {
-        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id) === 1;
-    }
-
     private function parametros(array $dados): array
     {
         $descricao = trim((string) ($dados['descricao'] ?? ''));
@@ -157,13 +153,15 @@ final class ServicoController
             'nome'      => trim($dados['nome']),
             'preco'     => $dados['preco'],
             'descricao' => $descricao === '' ? null : $descricao,
+            // Opcional: sem ela, o serviço novo fica com 60 e o existente mantém a atual.
+            'duracao_minutos' => $dados['duracao_minutos'] ?? null,
         ];
     }
 
     // O Postgres devolve DECIMAL como string ("35.00"); a API devolve número.
     private function formatar(array $servico): array
     {
-        return [...$servico, 'preco' => (float) $servico['preco']];
+        return [...$servico, 'preco' => (float) $servico['preco'], 'duracao_minutos' => (int) $servico['duracao_minutos']];
     }
 
     private function idInvalido(string $id): Response
@@ -202,6 +200,14 @@ final class ServicoController
             $erros['preco'] = 'O preço não pode ser negativo.';
         } elseif ($dados['preco'] > 99999999.99) {
             $erros['preco'] = 'O preço máximo permitido é 99999999.99.';
+        }
+
+        if (isset($dados['duracao_minutos'])) {
+            $duracao = $dados['duracao_minutos'];
+            if (!is_int($duracao) || $duracao < 15 || $duracao > 480 || $duracao % 5 !== 0) {
+                $erros['duracao_minutos'] = 'A duração deve ser um número inteiro de minutos, entre 15 e 480, '
+                    . 'em múltiplos de 5. Ex.: 60';
+            }
         }
 
         if (isset($dados['descricao']) && !is_string($dados['descricao'])) {

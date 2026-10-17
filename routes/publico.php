@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Controllers\Agenda\HorarioController;
 use App\Controllers\Auth\AuthClienteController;
 use App\Controllers\Auth\AuthStaffController;
 use App\Controllers\Servicos\ServicoController;
@@ -13,6 +14,8 @@ return static function (Router $router): void {
     $router->grupo('/api', [], static function (Router $router): void {
         $router->get('/servicos', [ServicoController::class, 'listar']);
         $router->get('/servicos/{id}', [ServicoController::class, 'buscar']);
+        // Ver horários livres não exige login; pedir um horário, sim (routes/cliente.php).
+        $router->get('/servicos/{id}/horarios', [HorarioController::class, 'listar']);
 
         // Cliente: código de 6 dígitos
         $router->post('/auth/cliente/codigo', [AuthClienteController::class, 'solicitarCodigo']);

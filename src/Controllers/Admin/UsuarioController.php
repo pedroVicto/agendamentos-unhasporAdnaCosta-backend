@@ -8,6 +8,7 @@ use App\Core\Database;
 use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
+use App\Core\Uuid;
 use App\Services\AuthService;
 use App\Services\Contato;
 use App\Services\Notificacao\Email;
@@ -88,17 +89,21 @@ final class UsuarioController
     // PATCH /api/admin/usuarios/{id}/ativo  {ativo: true|false}
     public function definirAtivo(Request $request): Response
     {
+        $id = $request->params['id'];
+        if (!Uuid::valido($id)) {
+            return Response::erro("O id \"{$id}\" não é válido. Use o id (UUID) retornado na listagem de usuários.", 400);
+        }
+
         $ativo = $request->corpo['ativo'] ?? null;
-        if (!is_bool($ativo) || !ctype_digit($request->params['id'])) {
+        if (!is_bool($ativo)) {
             return Response::erro('Informe "ativo" como true ou false.', 422);
         }
-        $id = (int) $request->params['id'];
 
         $atualizacao = Database::conexao()->prepare(
             "UPDATE usuarios SET ativo = :ativo, updated_at = NOW() WHERE id = :id AND papel = 'supervisor'"
         );
         $atualizacao->bindValue('ativo', $ativo, \PDO::PARAM_BOOL);
-        $atualizacao->bindValue('id', $id, \PDO::PARAM_INT);
+        $atualizacao->bindValue('id', $id);
         $atualizacao->execute();
 
         if ($atualizacao->rowCount() === 0) {

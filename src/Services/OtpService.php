@@ -93,11 +93,12 @@ final class OtpService
         }
 
         // Só o código mais recente vale: pedir um novo invalida os anteriores.
+        // O id é UUID aleatório, então a ordem vem do created_at.
         $busca = $pdo->prepare(
             'SELECT id, codigo_hash
                FROM codigos_verificacao
               WHERE usuario_id = :id
-              ORDER BY id DESC
+              ORDER BY created_at DESC
               LIMIT 1'
         );
         $busca->execute(['id' => $usuario['id']]);

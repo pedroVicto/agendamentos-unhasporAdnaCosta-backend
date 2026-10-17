@@ -23,7 +23,7 @@ final class AuthService
      * Troca a senha de quem está logado. Devolve false se a senha atual
      * não confere.
      */
-    public function trocarSenha(int $usuarioId, string $senhaAtual, string $novaSenha): bool
+    public function trocarSenha(string $usuarioId, string $senhaAtual, string $novaSenha): bool
     {
         $pdo = Database::conexao();
 

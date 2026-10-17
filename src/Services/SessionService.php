@@ -68,7 +68,7 @@ final class SessionService
         )->execute(['token_hash' => self::hash($token)]);
     }
 
-    public function revogarTodas(int $usuarioId): void
+    public function revogarTodas(string $usuarioId): void
     {
         Database::conexao()->prepare(
             'UPDATE sessoes SET revogada_em = NOW() WHERE usuario_id = :id AND revogada_em IS NULL'
@@ -76,7 +76,7 @@ final class SessionService
     }
 
     // Depois de trocar a senha, só a sessão atual continua valendo.
-    public function revogarOutras(int $usuarioId, string $tokenAtual): void
+    public function revogarOutras(string $usuarioId, string $tokenAtual): void
     {
         Database::conexao()->prepare(
             'UPDATE sessoes SET revogada_em = NOW()

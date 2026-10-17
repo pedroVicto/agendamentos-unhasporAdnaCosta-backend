@@ -33,7 +33,7 @@ final class SessaoController
             return Response::erro('A nova senha precisa ser diferente da atual.', 422);
         }
 
-        $id = (int) $request->usuario['id'];
+        $id = $request->usuario['id'];
         if (!(new AuthService())->trocarSenha($id, $atual, $nova)) {
             return Response::erro('Senha atual incorreta.', 422);
         }

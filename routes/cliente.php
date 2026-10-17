@@ -13,6 +13,8 @@ return static function (Router $router): void {
         [new AuthMiddleware(), new PapelMiddleware('cliente')],
         static function (Router $router): void {
             $router->get('/agendamentos', [AgendamentoController::class, 'meus']);
+            $router->post('/agendamentos', [AgendamentoController::class, 'criar']);
+            $router->patch('/agendamentos/{id}/cancelar', [AgendamentoController::class, 'cancelarPeloCliente']);
         }
     );
 };

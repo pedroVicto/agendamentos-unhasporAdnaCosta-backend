@@ -11,7 +11,6 @@ final class TwilioNotificador implements Notificador
 {
     public function enviarCodigo(string $canal, string $destino, string $codigo, int $validadeMinutos): void
     {
-        $sid = Env::obrigatoria('TWILIO_SID');
         $texto = "Seu código de acesso é {$codigo}. Vale por {$validadeMinutos} minutos.";
 
         if ($canal === 'whatsapp') {
@@ -36,6 +35,25 @@ final class TwilioNotificador implements Notificador
                 'Body' => $texto,
             ];
         }
+
+        $this->enviar($campos);
+    }
+
+    // Texto livre (avisos de agendamento). Só SMS: no WhatsApp, mensagem
+    // iniciada pela empresa exige template aprovado.
+    public function enviarMensagem(string $destino, string $texto): void
+    {
+        $this->enviar([
+            'To' => $destino,
+            'From' => Env::obrigatoria('TWILIO_FROM_SMS'),
+            'Body' => $texto,
+        ]);
+    }
+
+    private function enviar(array $campos): void
+    {
+        $sid = Env::obrigatoria('TWILIO_SID');
+        $canal = str_starts_with($campos['To'], 'whatsapp:') ? 'whatsapp' : 'sms';
 
         $curl = curl_init("https://api.twilio.com/2010-04-01/Accounts/{$sid}/Messages.json");
         curl_setopt_array($curl, [
