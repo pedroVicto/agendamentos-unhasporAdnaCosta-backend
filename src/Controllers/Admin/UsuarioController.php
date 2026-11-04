@@ -43,8 +43,11 @@ final class UsuarioController
         if ($nome === null || mb_strlen($nome) > 150 || $email === null) {
             return Response::erro('Informe nome e e-mail válidos.', 422);
         }
-        if (!is_string($senha) || strlen($senha) < AuthService::SENHA_MINIMA) {
-            return Response::erro('A senha precisa ter ao menos ' . AuthService::SENHA_MINIMA . ' caracteres.', 422);
+        if (!is_string($senha)) {
+            return Response::erro('Informe a senha temporária.', 422);
+        }
+        if (($problema = AuthService::validarSenha($senha)) !== null) {
+            return Response::erro($problema, 422);
         }
 
         $pdo = Database::conexao();

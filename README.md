@@ -123,6 +123,21 @@ O front-end precisa enviar as requisições com `credentials: 'include'` para o 
 
 SMS e WhatsApp usam a Twilio (`TWILIO_*` no `.env`). Sem essas credenciais, com `APP_ENV=local`, o código é só gravado no log: `docker compose logs -f php`.
 
+### Receber o código no WhatsApp
+
+O WhatsApp não entrega mensagem iniciada pela empresa (é o nosso caso: o cliente pede um código sem ter escrito antes) com texto livre — só com template aprovado. Sem isso a Twilio recusa com `21654 ContentSid Required`, o backend devolve 502 e o front mostra "não foi possível enviar o código".
+
+**Para testar (conta trial):** use o sandbox.
+
+1. Console da Twilio > Messaging > Try it out > Send a WhatsApp message.
+2. Do seu WhatsApp, mande `join <as-duas-palavras>` para `+1 415 523 8886`.
+3. No `.env`, `TWILIO_FROM_WHATSAPP=+14155238886` (o seu número vai no `To`, nunca aqui) e `TWILIO_WHATSAPP_CONTENT_SID` vazio.
+4. Peça o código no front com o seu telefone (com DDD).
+
+O `join` abre uma janela de 24h, e é só dentro dela que o texto livre do `TwilioNotificador` é aceito — fora dela a Twilio volta a recusar com `21654`, mesmo no sandbox (o sandbox não aceita template próprio). Em desenvolvimento, se o código parar de chegar, mande qualquer mensagem para o número do sandbox de novo. Só quem deu `join` recebe (erro `63015` para os outros).
+
+**Em produção:** registre um remetente de WhatsApp, crie um template de autenticação no Content Template Builder (`Seu código de acesso é {{1}}...`) e ponha o SID (`HX...`) em `TWILIO_WHATSAPP_CONTENT_SID`. A partir daí o envio vale para qualquer número, sem `join` e sem janela de 24h.
+
 ## Agendamentos
 
 Fluxo: o visitante vê os horários livres de um serviço sem login → para pedir, precisa estar logado como cliente → o pedido nasce `pendente` → um supervisor (ou admin) confirma ou recusa.

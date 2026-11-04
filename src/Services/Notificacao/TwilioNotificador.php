@@ -14,18 +14,23 @@ final class TwilioNotificador implements Notificador
         $texto = "Seu código de acesso é {$codigo}. Vale por {$validadeMinutos} minutos.";
 
         if ($canal === 'whatsapp') {
+            $de = Env::obrigatoria('TWILIO_FROM_WHATSAPP');
             $campos = [
                 'To' => 'whatsapp:' . $destino,
-                'From' => 'whatsapp:' . Env::obrigatoria('TWILIO_FROM_WHATSAPP'),
+                'From' => 'whatsapp:' . $de,
             ];
 
-            // Fora do sandbox, o WhatsApp só entrega mensagem iniciada pela
-            // empresa se ela usar um template aprovado (categoria "autenticação").
+            // Mensagem iniciada pela empresa (é o nosso caso: o cliente não
+            // escreveu primeiro) só é entregue com template aprovado. Sem
+            // template, a Twilio recusa com 21654 "ContentSid Required".
             $template = Env::get('TWILIO_WHATSAPP_CONTENT_SID');
             if ($template !== null) {
                 $campos['ContentSid'] = $template;
                 $campos['ContentVariables'] = json_encode(['1' => $codigo]);
             } else {
+                // Sem template, texto livre só passa dentro da janela de 24h
+                // aberta por uma mensagem do próprio cliente (no sandbox, o
+                // "join"). Fora dela a Twilio recusa com 21654.
                 $campos['Body'] = $texto;
             }
         } else {

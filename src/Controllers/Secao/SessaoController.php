@@ -26,8 +26,11 @@ final class SessaoController
         if ($request->usuario['papel'] === 'cliente') {
             return Response::erro('Acesso negado.', 403);
         }
-        if (!is_string($atual) || !is_string($nova) || strlen($nova) < AuthService::SENHA_MINIMA) {
-            return Response::erro('A nova senha precisa ter ao menos ' . AuthService::SENHA_MINIMA . ' caracteres.', 422);
+        if (!is_string($atual) || !is_string($nova)) {
+            return Response::erro('Informe a senha atual e a nova senha.', 422);
+        }
+        if (($problema = AuthService::validarSenha($nova)) !== null) {
+            return Response::erro($problema, 422);
         }
         if (hash_equals($atual, $nova)) {
             return Response::erro('A nova senha precisa ser diferente da atual.', 422);

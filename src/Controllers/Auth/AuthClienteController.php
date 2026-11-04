@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers\Auth;
 
+use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
 use App\Services\Contato;
@@ -36,7 +37,12 @@ final class AuthClienteController
         } catch (\RuntimeException $e) {
             error_log($e->getMessage());
 
-            return Response::erro('Não foi possível enviar o código. Tente novamente.', 502);
+            // Em produção o motivo fica só no log (não interessa a quem sonda).
+            // Em desenvolvimento ele vai junto, senão o front mostra "tente de
+            // novo" e o erro de verdade (credencial, template) fica escondido.
+            $detalhe = Env::get('APP_ENV', 'production') === 'local' ? ' (' . $e->getMessage() . ')' : '';
+
+            return Response::erro('Não foi possível enviar o código. Tente novamente.' . $detalhe, 502);
         }
 
         // Mesma resposta tenha o código saído ou não (limite de reenvio,

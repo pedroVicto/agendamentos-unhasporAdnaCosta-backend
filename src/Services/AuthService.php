@@ -14,6 +14,36 @@ final class AuthService
     private const MAX_TENTATIVAS = 5;
     private const BLOQUEIO_MINUTOS = 15;
 
+    /**
+     * Regras de uma senha nova, num lugar só: a criação de supervisor, a
+     * troca de senha e o seeder do admin precisam cobrar exatamente o mesmo.
+     * Devolve a mensagem do primeiro problema, ou null se a senha serve.
+     *
+     * O tamanho segue em bytes (strlen), como sempre foi aqui. As classes de
+     * caractere usam propriedades Unicode, para "Ótimo1!" valer tanto quanto
+     * "Otimo1!".
+     */
+    public static function validarSenha(string $senha): ?string
+    {
+        if (strlen($senha) < self::SENHA_MINIMA) {
+            return 'A senha precisa ter ao menos ' . self::SENHA_MINIMA . ' caracteres.';
+        }
+        if (!preg_match('/\p{Lu}/u', $senha)) {
+            return 'A senha precisa ter ao menos uma letra maiúscula.';
+        }
+        if (!preg_match('/\p{Ll}/u', $senha)) {
+            return 'A senha precisa ter ao menos uma letra minúscula.';
+        }
+        if (!preg_match('/\p{Nd}/u', $senha)) {
+            return 'A senha precisa ter ao menos um número.';
+        }
+        if (!preg_match('/[^\p{L}\p{N}]/u', $senha)) {
+            return 'A senha precisa ter ao menos um símbolo. Ex.: ! @ # $ %';
+        }
+
+        return null;
+    }
+
     public static function hashSenha(string $senha): string
     {
         return password_hash($senha, PASSWORD_ARGON2ID);

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\AuthService;
 use Phinx\Seed\AbstractSeed;
 
 final class AdminSeeder extends AbstractSeed
@@ -13,8 +14,13 @@ final class AdminSeeder extends AbstractSeed
         $email = mb_strtolower(trim((string) getenv('ADMIN_EMAIL')));
         $senha = (string) getenv('ADMIN_SENHA');
 
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($senha) < 10) {
-            throw new RuntimeException('Defina ADMIN_EMAIL e ADMIN_SENHA (mínimo 10 caracteres) no .env.');
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new RuntimeException('Defina ADMIN_EMAIL com um e-mail válido no .env.');
+        }
+
+        // A conta mais poderosa do sistema segue a mesma regra das outras.
+        if (($problema = AuthService::validarSenha($senha)) !== null) {
+            throw new RuntimeException("ADMIN_SENHA no .env não serve: {$problema}");
         }
 
         $pdo = $this->getAdapter()->getConnection();
