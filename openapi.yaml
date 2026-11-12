@@ -29,8 +29,19 @@ paths:
     get:
       tags: [Público]
       summary: Lista os serviços
+      description: |
+        Sem `categoria_id`, devolve o catálogo inteiro. Com ele, só os serviços
+        daquela categoria — é o filtro que o cliente usa na tela de serviços.
+        A ordem é por categoria e, dentro dela, por nome.
       operationId: listarServicos
       security: []
+      parameters:
+        - name: categoria_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Lista de serviços, ordenada por nome
@@ -43,6 +54,147 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Servico'
+        '422':
+          description: categoria_id fora do formato UUID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+
+  /api/categorias:
+    get:
+      tags: [Público]
+      summary: Lista as categorias do catálogo
+      description: |
+        As categorias são cadastradas pela Supervisora — a API não cria
+        nenhuma sozinha. A tela dela monta o select do serviço com esta lista
+        e a do cliente monta os filtros.
+      operationId: listarCategorias
+      security: []
+      responses:
+        '200':
+          description: Categorias ativas, em ordem alfabética
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categorias:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Categoria'
+    post:
+      tags: [Admin]
+      summary: Cria uma categoria
+      operationId: criarCategoria
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome]
+              properties:
+                nome:
+                  type: string
+                  maxLength: 60
+                  example: Alongamento
+      responses:
+        '201':
+          description: Categoria criada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensagem:
+                    type: string
+                  categoria:
+                    $ref: '#/components/schemas/Categoria'
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+
+  /api/categorias/{id}:
+    put:
+      tags: [Admin]
+      summary: Renomeia uma categoria
+      description: |
+        O nome novo vale para todos os serviços do grupo de uma vez: eles
+        guardam só o id da categoria.
+      operationId: atualizarCategoria
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nome]
+              properties:
+                nome:
+                  type: string
+                  maxLength: 60
+      responses:
+        '200':
+          description: Categoria atualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensagem:
+                    type: string
+                  categoria:
+                    $ref: '#/components/schemas/Categoria'
+        '404':
+          description: Categoria não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
+        '422':
+          $ref: '#/components/responses/DadosInvalidos'
+    delete:
+      tags: [Admin]
+      summary: Remove uma categoria
+      description: |
+        Só desativa. Com serviço ativo dentro, a remoção é recusada (409):
+        mude a categoria dos serviços antes.
+      operationId: removerCategoria
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      responses:
+        '200':
+          description: Categoria removida
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensagem:
+                    type: string
+                  id:
+                    type: string
+                    format: uuid
+        '409':
+          description: Ainda há serviços nessa categoria
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  erro:
+                    type: string
+                  servicos:
+                    type: integer
+                    example: 3
+        '404':
+          description: Categoria não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Erro'
 
   /api/servicos/{id}/horarios:
     get:
@@ -972,6 +1124,28 @@ components:
           type: integer
           description: Entre 15 e 480, múltiplo de 5. Opcional ao criar (padrão 60).
           example: 60
+        categoria_id:
+          type: string
+          format: uuid
+          description: Obrigatório ao criar ou editar um serviço.
+        categoria:
+          type: string
+          description: Nome da categoria, pronto para exibir.
+          example: Alongamento
+
+    Categoria:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nome:
+          type: string
+          example: Alongamento
+        servicos:
+          type: integer
+          description: Quantos serviços ativos estão nessa categoria.
+          example: 3
 
     AgendamentoCliente:
       type: object

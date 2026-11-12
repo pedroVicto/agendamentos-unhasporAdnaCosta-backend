@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Controllers\Admin\UsuarioController;
+use App\Controllers\Servicos\CategoriaController;
 use App\Controllers\Servicos\ServicoController;
 use App\Core\Router;
 use App\Middleware\AuthMiddleware;
@@ -27,6 +28,17 @@ return static function (Router $router): void {
             $router->post('', [ServicoController::class, 'criar']);
             $router->put('/{id}', [ServicoController::class, 'atualizar']);
             $router->delete('/{id}', [ServicoController::class, 'remover']);
+        }
+    );
+
+    // Categorias do catálogo: mesma regra dos serviços.
+    $router->grupo(
+        '/api/categorias',
+        [new AuthMiddleware(), new PapelMiddleware('admin')],
+        static function (Router $router): void {
+            $router->post('', [CategoriaController::class, 'criar']);
+            $router->put('/{id}', [CategoriaController::class, 'atualizar']);
+            $router->delete('/{id}', [CategoriaController::class, 'remover']);
         }
     );
 };

@@ -11,14 +11,38 @@ use App\Core\Uuid;
 
 final class ServicoController
 {
-    private const COLUNAS = 'id, nome, preco, descricao, duracao_minutos, created_at, updated_at';
+    // O nome da categoria vem da junção: o serviço guarda só o id dela, então
+    // renomear a categoria vale para todos os serviços de uma vez.
+    private const COLUNAS = 's.id, s.nome, s.preco, s.descricao, s.duracao_minutos,
+                             s.categoria_id, c.nome AS categoria, s.created_at, s.updated_at';
 
-    // GET /api/servicos (público)
+    private const DE = ' FROM servicos s JOIN categorias c ON c.id = s.categoria_id ';
+
+    // GET /api/servicos?categoria_id=... (público)
     public function listar(Request $request): Response
     {
-        $servicos = Database::conexao()
-            ->query('SELECT ' . self::COLUNAS . ' FROM servicos WHERE ativo = true ORDER BY nome')
-            ->fetchAll();
+        $filtros = ['s.ativo = true'];
+        $parametros = [];
+
+        $categoriaId = $request->query['categoria_id'] ?? null;
+        if (is_string($categoriaId) && $categoriaId !== '') {
+            if (!Uuid::valido($categoriaId)) {
+                return Response::erro(
+                    'Informe "categoria_id" como o id (UUID) devolvido em /api/categorias.',
+                    422
+                );
+            }
+            $filtros[] = 's.categoria_id = :categoria_id';
+            $parametros['categoria_id'] = $categoriaId;
+        }
+
+        $busca = Database::conexao()->prepare(
+            'SELECT ' . self::COLUNAS . self::DE
+            . ' WHERE ' . implode(' AND ', $filtros)
+            . ' ORDER BY c.nome, s.nome'
+        );
+        $busca->execute($parametros);
+        $servicos = $busca->fetchAll();
 
         return Response::json([
             'total'    => count($servicos),
@@ -56,9 +80,12 @@ final class ServicoController
 
         // O id (UUID aleatório) é gerado pelo próprio banco.
         $stmt = Database::conexao()->prepare(
-            'INSERT INTO servicos (nome, preco, descricao, duracao_minutos)
-             VALUES (:nome, :preco, :descricao, COALESCE(:duracao_minutos, 60))
-             RETURNING ' . self::COLUNAS
+            'WITH novo AS (
+                INSERT INTO servicos (nome, preco, descricao, duracao_minutos, categoria_id)
+                VALUES (:nome, :preco, :descricao, COALESCE(:duracao_minutos, 60), :categoria_id)
+                RETURNING *
+             )
+             SELECT ' . self::COLUNAS . ' FROM novo s JOIN categorias c ON c.id = s.categoria_id'
         );
         $stmt->execute($this->parametros($dados));
         $servico = $stmt->fetch();
@@ -90,11 +117,14 @@ final class ServicoController
         }
 
         $stmt = Database::conexao()->prepare(
-            'UPDATE servicos
-             SET nome = :nome, preco = :preco, descricao = :descricao,
-                 duracao_minutos = COALESCE(:duracao_minutos, duracao_minutos), updated_at = NOW()
-             WHERE id = :id
-             RETURNING ' . self::COLUNAS
+            'WITH alterado AS (
+                UPDATE servicos
+                   SET nome = :nome, preco = :preco, descricao = :descricao, categoria_id = :categoria_id,
+                       duracao_minutos = COALESCE(:duracao_minutos, duracao_minutos), updated_at = NOW()
+                 WHERE id = :id
+                RETURNING *
+             )
+             SELECT ' . self::COLUNAS . ' FROM alterado s JOIN categorias c ON c.id = s.categoria_id'
         );
         $stmt->execute([...$this->parametros($dados), 'id' => $id]);
         $servico = $stmt->fetch();
@@ -138,11 +168,21 @@ final class ServicoController
     private function encontrar(string $id): array|false
     {
         $stmt = Database::conexao()->prepare(
-            'SELECT ' . self::COLUNAS . ' FROM servicos WHERE id = :id AND ativo = true'
+            'SELECT ' . self::COLUNAS . self::DE . ' WHERE s.id = :id AND s.ativo = true'
         );
         $stmt->execute(['id' => $id]);
 
         return $stmt->fetch();
+    }
+
+    private function categoriaExiste(string $id): bool
+    {
+        $stmt = Database::conexao()->prepare(
+            'SELECT 1 FROM categorias WHERE id = :id AND ativo = true'
+        );
+        $stmt->execute(['id' => $id]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     private function parametros(array $dados): array
@@ -153,6 +193,7 @@ final class ServicoController
             'nome'      => trim($dados['nome']),
             'preco'     => $dados['preco'],
             'descricao' => $descricao === '' ? null : $descricao,
+            'categoria_id' => $dados['categoria_id'],
             // Opcional: sem ela, o serviço novo fica com 60 e o existente mantém a atual.
             'duracao_minutos' => $dados['duracao_minutos'] ?? null,
         ];
@@ -161,7 +202,11 @@ final class ServicoController
     // O Postgres devolve DECIMAL como string ("35.00"); a API devolve número.
     private function formatar(array $servico): array
     {
-        return [...$servico, 'preco' => (float) $servico['preco'], 'duracao_minutos' => (int) $servico['duracao_minutos']];
+        return [
+            ...$servico,
+            'preco'           => (float) $servico['preco'],
+            'duracao_minutos' => (int) $servico['duracao_minutos'],
+        ];
     }
 
     private function idInvalido(string $id): Response
@@ -200,6 +245,17 @@ final class ServicoController
             $erros['preco'] = 'O preço não pode ser negativo.';
         } elseif ($dados['preco'] > 99999999.99) {
             $erros['preco'] = 'O preço máximo permitido é 99999999.99.';
+        }
+
+        // Obrigatória: é ela que agrupa o serviço no catálogo e no filtro do
+        // cliente, então um serviço sem categoria não teria onde aparecer.
+        $categoriaId = $dados['categoria_id'] ?? null;
+        if (!is_string($categoriaId) || trim($categoriaId) === '') {
+            $erros['categoria_id'] = 'A categoria é obrigatória. Escolha uma das cadastradas.';
+        } elseif (!Uuid::valido($categoriaId)) {
+            $erros['categoria_id'] = 'Informe o id (UUID) de uma categoria cadastrada.';
+        } elseif (!$this->categoriaExiste($categoriaId)) {
+            $erros['categoria_id'] = 'Essa categoria não existe mais. Recarregue a lista de categorias.';
         }
 
         if (isset($dados['duracao_minutos'])) {
