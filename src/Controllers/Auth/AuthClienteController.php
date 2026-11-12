@@ -66,7 +66,24 @@ final class AuthClienteController
             return Response::erro('Código inválido ou expirado.', 401);
         }
 
-        return (new SessionService())->iniciar($usuario, $request);
+        $nomeDigitado = $request->input('nome');
+        $aviso = null;
+        if ($nomeDigitado !== null && self::nomesDiferem($nomeDigitado, $usuario['nome'])) {
+            $aviso = [
+                'nome_diferente'  => true,
+                'nome_cadastrado' => $usuario['nome'],
+            ];
+        }
+
+        return (new SessionService())->iniciar($usuario, $request, $aviso);
+    }
+
+    private static function nomesDiferem(string $digitado, string $cadastrado): bool
+    {
+        $norm = static fn (string $s): string =>
+            mb_strtolower(trim(preg_replace('/\s+/', ' ', $s)));
+
+        return $norm($digitado) !== $norm($cadastrado);
     }
 
     /**

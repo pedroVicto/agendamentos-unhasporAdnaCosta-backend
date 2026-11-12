@@ -18,7 +18,7 @@ final class SessionService
     /**
      * Cria a sessão e já devolve a resposta com o cookie httpOnly.
      */
-    public function iniciar(array $usuario, Request $request): Response
+    public function iniciar(array $usuario, Request $request, ?array $extra = null): Response
     {
         $duracao = $usuario['papel'] === 'cliente' ? self::DURACAO_CLIENTE : self::DURACAO_STAFF;
 
@@ -28,7 +28,7 @@ final class SessionService
 
         Database::conexao()->prepare(
             "INSERT INTO sessoes (usuario_id, token_hash, expira_em, ip, user_agent)
-             VALUES (:usuario_id, :token_hash, NOW() + (:duracao * INTERVAL '1 second'), :ip, :user_agent)"
+            VALUES (:usuario_id, :token_hash, NOW() + (:duracao * INTERVAL '1 second'), :ip, :user_agent)"
         )->execute([
             'usuario_id' => $usuario['id'],
             'token_hash' => self::hash($token),
@@ -37,7 +37,12 @@ final class SessionService
             'user_agent' => $request->userAgent(),
         ]);
 
-        return Response::json(['usuario' => self::publico($usuario)])
+        $corpo = ['usuario' => self::publico($usuario)];
+        if ($extra !== null) {
+            $corpo = array_merge($corpo, $extra);
+        }
+
+        return Response::json($corpo)
             ->comCookie(self::COOKIE, $token, time() + $duracao);
     }
 

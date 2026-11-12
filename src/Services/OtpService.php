@@ -79,12 +79,12 @@ final class OtpService
      * Confere o código. Devolve o usuário se hash, validade e tentativas
      * estiverem OK; caso contrário null, sem dizer qual das três falhou.
      */
-    public function verificar(string $campo, string $destino, string $codigo): ?array
+    public function verificar(string $campo, string $destino, string $codigo, ?string $nome = null): ?array
     {
         $pdo = Database::conexao();
 
         $busca = $pdo->prepare(
-            "SELECT id, nome, papel FROM usuarios WHERE {$campo} = :destino AND papel = 'cliente' AND ativo"
+            "SELECT id, nome, papel, verificado_em FROM usuarios WHERE {$campo} = :destino AND papel = 'cliente' AND ativo"
         );
         $busca->execute(['destino' => $destino]);
         $usuario = $busca->fetch();
@@ -136,9 +136,20 @@ final class OtpService
             return null;
         }
 
+        $jaVerificado = $usuario['verificado_em'] !== null;
+
+        // Primeira verificação: quem provou ser dono do contato decide o nome.
+        if (!$jaVerificado && $nome !== null && mb_strlen($nome) >= 2 && mb_strlen($nome) <= 150) {
+            $usuario['nome'] = $nome;
+        }
+
         $pdo->prepare(
-            'UPDATE usuarios SET verificado_em = COALESCE(verificado_em, NOW()), updated_at = NOW() WHERE id = :id'
-        )->execute(['id' => $usuario['id']]);
+            'UPDATE usuarios
+                SET nome = :nome, verificado_em = COALESCE(verificado_em, NOW()), updated_at = NOW()
+              WHERE id = :id'
+        )->execute(['nome' => $usuario['nome'], 'id' => $usuario['id']]);
+
+        $usuario['ja_verificado'] = $jaVerificado;
 
         return $usuario;
     }
