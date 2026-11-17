@@ -23,15 +23,26 @@ foreach (['publico', 'autenticado', 'cliente', 'supervisor', 'admin'] as $area) 
     (require __DIR__ . "/../routes/{$area}.php")($router);
 }
 
+$cors = new CorsMiddleware();
+$request = null;
+
 try {
-    $response = (new CorsMiddleware())->processar(
-        Request::capturar(),
+    $request = Request::capturar();
+    $response = $cors->processar(
+        $request,
         static fn (Request $request): Response => $router->despachar($request)
     );
 } catch (Throwable $e) {
     // O detalhe vai para o log; o cliente só recebe uma mensagem genérica.
     error_log((string) $e);
-    $response = Response::erro('Erro interno.', 500);
+    $erro = Response::erro('Erro interno.', 500);
+
+    // O erro também passa pelo CORS: sem os cabeçalhos o navegador esconde a
+    // resposta e o front mostra uma falha de CORS opaca em vez da mensagem da
+    // API — o que faz um 500 do servidor parecer problema do front.
+    $response = $request === null
+        ? $erro
+        : $cors->processar($request, static fn (Request $request): Response => $erro);
 }
 
 $response->enviar();
