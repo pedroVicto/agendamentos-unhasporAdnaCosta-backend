@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\Agenda\HorarioController;
 use App\Controllers\Auth\AuthClienteController;
 use App\Controllers\Auth\AuthStaffController;
+use App\Controllers\SaudeController;
 use App\Controllers\Servicos\CategoriaController;
 use App\Controllers\Servicos\ServicoController;
 use App\Core\Router;
@@ -13,6 +14,10 @@ use App\Core\Router;
 // é só a ausência do AuthMiddleware.
 return static function (Router $router): void {
     $router->grupo('/api', [], static function (Router $router): void {
+        // Diagnóstico de deploy: responde se a aplicação alcança o banco e se
+        // as migrações rodaram, sem expor host, usuário nem senha.
+        $router->get('/saude', [SaudeController::class, 'verificar']);
+
         $router->get('/servicos', [ServicoController::class, 'listar']);
         $router->get('/servicos/{id}', [ServicoController::class, 'buscar']);
         // Ver horários livres não exige login; pedir um horário, sim (routes/cliente.php).
