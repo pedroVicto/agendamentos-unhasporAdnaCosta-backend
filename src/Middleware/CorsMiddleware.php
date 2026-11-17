@@ -13,9 +13,7 @@ final class CorsMiddleware implements Middleware
     public function processar(Request $request, callable $proximo): Response
     {
         $origem = $request->header('Origin');
-        $permitida = $origem !== null && in_array($origem, self::origensPermitidas(), true)
-            ? $origem
-            : null;
+        $permitida = $origem !== null && self::liberada($origem) ? $origem : null;
 
         // Preflight: o navegador pergunta antes de mandar a requisição de verdade.
         $response = ($request->metodo === 'OPTIONS' && $origem !== null)
@@ -39,6 +37,30 @@ final class CorsMiddleware implements Middleware
         }
 
         return $response;
+    }
+
+    /**
+     * Enquanto FRONTEND_URL estiver vazia, o desenvolvimento local continua
+     * funcionando: localhost e 127.0.0.1, em qualquer porta. É uma tolerância
+     * estreita e temporária — preencher FRONTEND_URL a desliga sozinha, porque
+     * a partir daí só a lista vale.
+     *
+     * O que ela custa: uma página servida na máquina de quem acessa (localhost
+     * dela, não deste servidor) consegue chamar a API com o cookie de sessão
+     * junto. Exige código já rodando no computador da vítima, mas é motivo de
+     * sobra para cadastrar FRONTEND_URL assim que os fronts forem publicados.
+     */
+    private const ORIGEM_LOCAL = '#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#';
+
+    private static function liberada(string $origem): bool
+    {
+        $lista = self::origensPermitidas();
+
+        if ($lista !== []) {
+            return in_array($origem, $lista, true);
+        }
+
+        return preg_match(self::ORIGEM_LOCAL, $origem) === 1;
     }
 
     /**

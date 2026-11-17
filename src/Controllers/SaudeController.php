@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\Database;
+use App\Core\Env;
 use App\Core\Request;
 use App\Core\Response;
 use PDO;
@@ -24,6 +25,20 @@ use Throwable;
  */
 final class SaudeController
 {
+    /**
+     * Variáveis sem as quais alguma funcionalidade cai, e o que cai com cada
+     * uma. Só o NOME sai na resposta, nunca o valor: a lista existe para o
+     * deploy saber o que falta cadastrar, não para vazar segredo.
+     */
+    private const VARIAVEIS = [
+        'APP_KEY' => 'código de 6 dígitos do login do cliente',
+        'FRONTEND_URL' => 'origens liberadas no CORS',
+        'MAIL_HOST' => 'envio de e-mail',
+        'MAIL_FROM' => 'remetente do e-mail',
+        'MAIL_USERNAME' => 'autenticação no SMTP',
+        'MAIL_PASSWORD' => 'autenticação no SMTP',
+    ];
+
     /** As tabelas que provam que as migrações rodaram. */
     private const TABELAS_ESPERADAS = ['phinx_migration_log', 'usuarios', 'servicos', 'agendamentos'];
 
@@ -69,7 +84,31 @@ final class SaudeController
             'banco' => 'conectado',
             'migracoes' => 'aplicadas',
             'tabelas' => count($tabelas),
+            'configuracao' => self::configuracao(),
         ]);
+    }
+
+    /**
+     * O que mais costuma faltar depois de um deploy. Nenhum valor secreto sai
+     * daqui: das variáveis sensíveis sai só o nome, e as três que aparecem
+     * com valor (APP_ENV, COOKIE_SAMESITE, NOTIFICADOR) são modos de operação,
+     * não credenciais.
+     */
+    private static function configuracao(): array
+    {
+        $faltando = [];
+        foreach (self::VARIAVEIS as $nome => $paraQue) {
+            if (Env::get($nome) === null) {
+                $faltando[$nome] = $paraQue;
+            }
+        }
+
+        return [
+            'faltando' => $faltando === [] ? 'nada' : $faltando,
+            'app_env' => Env::get('APP_ENV', 'production'),
+            'cookie_samesite' => Env::get('COOKIE_SAMESITE', 'Lax'),
+            'notificador' => Env::get('NOTIFICADOR', 'real'),
+        ];
     }
 
     private static function falha(string $banco, Throwable $e): Response
