@@ -77,13 +77,12 @@ final class Response
      * Com "None" ainda é preciso que o front mande as requisições com
      * credenciais (fetch: credentials: 'include') e que FRONTEND_URL
      * libere a origem exata no CORS.
+     *
+     * Sem a variável, o valor sai da própria requisição — veja samesite().
      */
     private static function opcoesDoCookie(int $expiraEm): array
     {
-        $samesite = ucfirst(strtolower(Env::get('COOKIE_SAMESITE', 'Lax') ?? 'Lax'));
-        if (!in_array($samesite, ['Lax', 'None', 'Strict'], true)) {
-            $samesite = 'Lax';
-        }
+        $samesite = self::samesite();
 
         $local = Env::get('APP_ENV', 'production') === 'local';
 
@@ -97,5 +96,47 @@ final class Response
             'secure' => !$local || $samesite === 'None',
             'samesite' => $samesite,
         ];
+    }
+
+    /**
+     * COOKIE_SAMESITE manda quando existe. Sem ela, o valor vem da requisição:
+     * um cookie entregue em resposta a uma chamada de OUTRO site só volta nas
+     * próximas se for "None". Com "Lax" o navegador guarda e nunca mais envia,
+     * e aí o login responde 200 e toda rota autenticada responde 401 logo
+     * depois — sem erro nenhum em lugar nenhum, que é o pior tipo de falha.
+     *
+     * A origem já passou pelo CorsMiddleware antes de chegar aqui, então nunca
+     * é um site qualquer: ou está em FRONTEND_URL, ou é o desenvolvimento local.
+     */
+    private static function samesite(): string
+    {
+        $escolhido = Env::get('COOKIE_SAMESITE');
+
+        if ($escolhido !== null) {
+            $valor = ucfirst(strtolower($escolhido));
+
+            return in_array($valor, ['Lax', 'None', 'Strict'], true) ? $valor : 'Lax';
+        }
+
+        return self::deOutroSite() ? 'None' : 'Lax';
+    }
+
+    /** O Origin da requisição aponta para um host diferente do da API? */
+    private static function deOutroSite(): bool
+    {
+        $origem = $_SERVER['HTTP_ORIGIN'] ?? null;
+        if (!is_string($origem) || $origem === '') {
+            return false;
+        }
+
+        $hostDaOrigem = parse_url($origem, PHP_URL_HOST);
+        if (!is_string($hostDaOrigem) || $hostDaOrigem === '') {
+            return false;
+        }
+
+        // A porta não entra: para o cookie o que separa um site do outro é o host.
+        $hostDaApi = preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? ''));
+
+        return strcasecmp($hostDaOrigem, (string) $hostDaApi) !== 0;
     }
 }
