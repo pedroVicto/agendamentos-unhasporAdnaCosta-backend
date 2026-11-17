@@ -1,0 +1,17 @@
+# NUNCA mandar o .env para a imagem: o Env::carregar usa putenv(), que
+# sobrescreveria as variáveis injetadas pela plataforma — fora de vazar
+# segredo em camada de imagem.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+vendor
+node_modules
+*.log
+docker-compose.yml
+Dockerfile
+.dockerignore
+README.md
+openapi.yaml

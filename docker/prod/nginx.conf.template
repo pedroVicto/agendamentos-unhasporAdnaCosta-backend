@@ -1,0 +1,38 @@
+server {
+    # ${PORT} é resolvido pelo entrypoint (envsubst) no start do container.
+    listen      ${PORT};
+    server_name _;
+
+    # Só public/ é servido. vendor/, src/, routes/, db/ e phinx.php
+    # ficam fora do alcance do navegador.
+    root  /var/www/html/public;
+    index index.php;
+
+    # Logs vão para a saída padrão, que é onde a plataforma de deploy lê.
+    access_log /dev/stdout;
+    error_log  /dev/stderr warn;
+
+    # A API devolve JSON; não faz sentido o nginx tentar adivinhar outra coisa.
+    client_max_body_size 2m;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location ~ \.php$ {
+        include fastcgi_params;
+        # Mesmo container: o php-fpm escuta no loopback, não em "php:9000".
+        fastcgi_pass  127.0.0.1:9000;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_read_timeout 60s;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+
+    gzip            on;
+    gzip_types      application/json text/plain;
+    gzip_min_length 512;
+}
