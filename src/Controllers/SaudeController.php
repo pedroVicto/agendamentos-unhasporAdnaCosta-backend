@@ -53,6 +53,15 @@ final class SaudeController
 
     public function verificar(Request $request): Response
     {
+        // GET /api/saude?rede=1 — modo à parte, porque abre conexões e demora
+        // alguns segundos. Serve para uma pergunta só: o servidor consegue sair
+        // para a internet nas portas de que a aplicação precisa? Várias
+        // hospedagens barram SMTP, e a conexão barrada não é recusada — fica
+        // pendurada até o proxy devolver 504, sem nada no log.
+        if (isset($request->query['rede'])) {
+            return Response::json(['api' => 'ok', 'rede' => self::rede()]);
+        }
+
         try {
             $conexao = Database::conexao();
         } catch (Throwable $e) {
@@ -109,6 +118,46 @@ final class SaudeController
             'cookie_samesite' => Env::get('COOKIE_SAMESITE', 'Lax'),
             'notificador' => Env::get('NOTIFICADOR', 'real'),
         ];
+    }
+
+    /**
+     * Um TCP connect por alvo, com o tempo que levou. "recusada" é boa notícia:
+     * significa que o pacote chegou e voltou. "tempo esgotado" no SMTP, com o
+     * controle em 443 funcionando, é a assinatura de porta bloqueada pela
+     * hospedagem — nenhum ajuste de credencial resolve isso.
+     */
+    private static function rede(): array
+    {
+        $host = Env::get('MAIL_HOST', '') ?? '';
+        $porta = (int) Env::get('MAIL_PORT', '587');
+
+        // O controle em 443 separa "a internet não sai daqui" de "esta porta
+        // está barrada": se ele conecta e o SMTP não, é a porta.
+        $alvos = ['https de controle' => ['example.com', 443]];
+        if ($host !== '') {
+            $alvos['smtp configurado'] = [$host, $porta];
+        }
+
+        $resultado = [];
+        foreach ($alvos as $nome => [$alvo, $portaAlvo]) {
+            $inicio = microtime(true);
+            $erro = 0;
+            $mensagem = '';
+            $conexao = @fsockopen($alvo, $portaAlvo, $erro, $mensagem, 8.0);
+            $ms = (int) round((microtime(true) - $inicio) * 1000);
+
+            if ($conexao !== false) {
+                fclose($conexao);
+                $resultado[$nome] = "{$alvo}:{$portaAlvo} conectou em {$ms}ms";
+                continue;
+            }
+
+            // Sem a mensagem do sistema: ela pode trazer IP interno.
+            $tipo = $ms >= 7500 ? 'tempo esgotado' : 'recusada';
+            $resultado[$nome] = "{$alvo}:{$portaAlvo} {$tipo} em {$ms}ms";
+        }
+
+        return $resultado;
     }
 
     private static function falha(string $banco, Throwable $e): Response

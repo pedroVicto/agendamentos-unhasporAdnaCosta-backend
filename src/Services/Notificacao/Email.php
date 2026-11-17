@@ -31,6 +31,13 @@ final class Email
             $mail->Port = (int) Env::get('MAIL_PORT', '587');
             $mail->CharSet = PHPMailer::CHARSET_UTF8;
 
+            // Sem isto o PHPMailer espera 300s. Quando a saída SMTP está
+            // bloqueada — várias hospedagens barram as portas 25, 465 e 587 —
+            // a conexão não é recusada, ela fica pendurada: o nginx corta em 60s
+            // e o cliente recebe um 504 em HTML, sem nada no log explicando.
+            // Com 10s a falha vira a nossa própria resposta, com o motivo logado.
+            $mail->Timeout = (int) Env::get('MAIL_TIMEOUT', '10');
+
             // tls | ssl | vazio (Mailpit em dev não usa criptografia)
             $mail->SMTPSecure = Env::get('MAIL_ENCRYPTION', '');
             $mail->SMTPAutoTLS = $mail->SMTPSecure !== '';
